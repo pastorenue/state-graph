@@ -6,6 +6,22 @@ Define the canonical JSON schema for workflow graph registration and execution s
 
 ---
 
+## DDD Classification
+
+| DDD Construct | Type(s) in this phase |
+|---|---|
+| Aggregate Root Serialisation | Workflow graph JSON = serialised form of the `Workflow` Aggregate Root; the `POST /api/v1/workflows` body is the canonical REST representation transcoded from the protobuf schema |
+| Infrastructure Adapter | `ObjectStore` — S3-compatible large-output backend; transparent to domain callers via `store.GetStateOutput` |
+| Infrastructure Mapping | `_ref` pointer in `StateRecord.Output` — an infrastructure-level indirection marker; never exposed to domain logic outside `store.GetStateOutput` |
+
+**Proto as canonical schema:** The Workflow graph JSON schema documented in Section A is the grpc-gateway transcoded form of `proto/kflow/v1/workflow.proto` and `proto/kflow/v1/types.proto`. The protobuf definitions (Phase 13) are the canonical schema. When the REST JSON schema and the proto schema conflict, the proto schema wins.
+
+**`buf generate` workflow:** Run `buf generate` in `proto/` to regenerate `internal/gen/`. The REST JSON schema is derived from `internal/gen/*.pb.gw.go`. Never hand-edit files in `internal/gen/`.
+
+**`handler_ref` is now resolved:** `handler_ref = ""` for Go in-process states. For Python/Rust states, `handler_ref` identifies the container runner language. The gRPC RunnerService protocol (Phase 13) is the mechanism — `handler_ref` is informational metadata in the graph, not a routing key.
+
+---
+
 ## Phase Dependencies
 
 - **Phase 3** must be complete. `MongoStore` and `Config` must be stable.
@@ -84,7 +100,7 @@ Registers a compiled workflow graph. The body is the canonical graph JSON:
 |-------|------|----------|-------------|
 | `name` | string | Yes | State name. Unique within the workflow. |
 | `type` | string | Yes | State type. Enum: `"task"`, `"choice"`, `"parallel"`, `"wait"`. |
-| `handler_ref` | string | No | For Go states resolved in-process: `""` (empty). For Python/Rust runner protocol: reserved for future runner identification string (see deferred items). |
+| `handler_ref` | string | No | For Go states resolved in-process: `""` (empty). For Python/Rust containers: informational only (e.g. `"python"`, `"rust"`); routing is via gRPC `RunnerService` token, not this field. See Phase 13. |
 | `service_target` | string | No | Name of a registered `Service` to invoke via `InvokeService`. Empty for direct task states. |
 | `retry` | object\|null | No | Retry policy. `null` means no retry. |
 | `catch` | string | No | Name of the error-handler state. Empty if none. |
@@ -151,10 +167,10 @@ The `input` field is the `kflow.Input` passed to the entry state. It may be an e
 | Runtime | Value | Meaning |
 |---------|-------|---------|
 | Go (in-process) | `""` (empty string) | Handler is resolved by state name within the compiled binary. |
-| Python SDK | Reserved | Placeholder for the runner protocol (deferred — see open questions). |
-| Rust SDK | Reserved | Placeholder for the runner protocol (deferred — see open questions). |
+| Python SDK | `"python"` (informational) | Container communicates via gRPC `RunnerService` (Phase 13). `handler_ref` is metadata only — routing is via token, not this field. |
+| Rust SDK | `"rust"` (informational) | Container communicates via gRPC `RunnerService` (Phase 13). Same as Python. |
 
-> **Deferred:** The multi-language runner protocol (how Python/Rust containers are identified and invoked via `handler_ref`) is an open question tracked in AGENTS.md. `handler_ref` is present in the schema to reserve the field; its semantics for non-Go runtimes are not yet defined.
+> **Resolved in Phase 13:** The multi-language runner protocol is gRPC `RunnerService`. `handler_ref` is an informational field in the graph schema and does not affect execution routing. The Control Plane dispatches all non-Go states via the same `RunnerService` gRPC contract regardless of `handler_ref` value.
 
 ---
 
@@ -278,7 +294,7 @@ type MongoStore struct {
 3. Object store keys are deterministic: `executions/<execID>/states/<stateName>/attempt-<N>.json`. No random suffixes.
 4. Large output offload does not affect the write-ahead protocol. `WriteAheadState` always writes `StatusPending` with empty output; offload happens only in `CompleteState`.
 5. The 1 MB threshold is measured on the **JSON-serialised** output, not the in-memory Go map size.
-6. `handler_ref = ""` is the only valid value for Go in-process states in v1. Non-empty `handler_ref` is reserved for future multi-language runner protocol.
+6. `handler_ref = ""` is the only valid value for Go in-process states in v1. Non-empty `handler_ref` is informational metadata for multi-language containers (e.g. `"python"`, `"rust"`); all non-Go states communicate with the Control Plane via gRPC `RunnerService` (Phase 13) regardless of `handler_ref` value.
 
 ---
 
@@ -288,7 +304,7 @@ The following items are explicitly deferred and not addressed in this phase:
 
 | Topic | Status |
 |-------|--------|
-| Python/Rust runner protocol (how `handler_ref` resolves to a container/function) | Deferred |
+| Python/Rust runner protocol | **Resolved in Phase 13** — gRPC `RunnerService` |
 | Workflow versioning (multiple versions of the same workflow name) | Deferred |
 | Service versioning | Deferred |
 | Cost accounting (execution cost per workflow / service) | Deferred |

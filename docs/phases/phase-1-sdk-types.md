@@ -6,6 +6,22 @@ Define every public type, interface, constructor, sentinel error, and validation
 
 ---
 
+## DDD Classification
+
+| DDD Construct | Type(s) in this phase |
+|---|---|
+| Aggregate Root | `Workflow`, `ServiceDef` |
+| Entity | `TaskDef` (identity: name within `Workflow`) |
+| Value Object | `Input`, `Output`, `RetryPolicy`, `StepBuilder`, `ServiceMode` |
+| Domain Service | (none in this phase — compiled in Phase 2) |
+| Application Service | `Run`, `RunService`, `RunLocal` (entry points wired in Phase 2+) |
+
+**Architectural position:** `pkg/kflow/` is the innermost domain layer. It must import nothing from `internal/`. All types defined here are stable public API — no refactoring for transport concerns (gRPC, HTTP) should alter these types.
+
+**Runner protocol note:** The `--state=<name>` execution path in `pkg/kflow/runner.go` uses gRPC (Phase 13), not `KFLOW_INPUT`/`KFLOW_MONGO_URI`. Containers dial `KFLOW_GRPC_ENDPOINT` and call `RunnerService.GetInput(token)`. `KFLOW_INPUT` is not injected into Job containers and must not be referenced in the `--state` path.
+
+---
+
 ## Phase Dependencies
 
 None. This is the foundation layer.
@@ -206,8 +222,8 @@ func Run(wf *Workflow)
 
 // RunService registers and deploys the service with the Control Plane.
 // If the binary is invoked with --service=<name>, enters the service execution path:
-//   - Deployment mode: starts an HTTP listener on the configured port.
-//   - Lambda mode: reads KFLOW_INPUT env, calls the handler once, writes output, exits.
+//   - Deployment mode: starts a gRPC server implementing ServiceRunnerService on the configured port.
+//   - Lambda mode: dials KFLOW_GRPC_ENDPOINT, calls RunnerService.GetInput(token), calls handler, reports output via RunnerService.CompleteState/FailState, exits.
 // Safe to call alongside Run in the same main().
 func RunService(svc *ServiceDef)
 

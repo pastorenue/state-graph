@@ -6,9 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-**kflow** is a Kubernetes-native serverless workflow engine written in Go. Users define state-machine workflows and persistent/on-demand services using a Go SDK; the engine handles containerisation, scheduling, and lifecycle management on Kubernetes. Think self-hosted AWS Step Functions + Lambda.
+**step-graph** is a Kubernetes-native serverless workflow engine written in Go. Users define state-machine workflows and persistent/on-demand services using a Go SDK; the engine handles containerisation, scheduling, and lifecycle management on Kubernetes. Think self-hosted AWS Step Functions + Lambda.
 
-The repository is currently in the **architectural planning phase**. `AGENTS.md` is the authoritative design document. `docs/phases/` contains 12 phase reference files that drive the implementation roadmap. No source code exists yet.
+The repository is currently in the **architectural planning phase**. `AGENTS.md` is the authoritative design document. `docs/phases/` contains 13 phase reference files that drive the implementation roadmap. No source code exists yet.
 
 ---
 
@@ -58,10 +58,17 @@ internal/
   config/                  # Config struct, LoadConfig() from env vars
   controller/              # ServiceDispatcher
   engine/                  # Graph (compiled workflow), Executor (state machine driver)
+  gen/                     # buf-generated protobuf + gRPC + grpc-gateway code (never hand-edited)
+  grpc/                    # gRPC server, interceptors, grpc-gateway mux
   k8s/                     # Kubernetes client: Jobs, Deployments, Services, Ingress
+  runner/                  # RunnerServiceServer, state token security (HMAC-SHA256)
   store/                   # Store interface, MemoryStore, MongoStore, ObjectStore
   telemetry/               # ClickHouse client, EventWriter, MetricsWriter, LogWriter
 pkg/kflow/                 # Public Go SDK (TaskDef, ServiceDef, Workflow, RunLocal, RunService)
+proto/
+  kflow/v1/                # Protobuf definitions (types, runner, workflow, execution, service_mgmt, telemetry)
+  buf.yaml                 # buf tool config
+  buf.gen.yaml             # Code generation: Go, gRPC, grpc-gateway, OpenAPI
 sdk/python/                # Python SDK
 sdk/rust/                  # Rust SDK
 ui/                        # SvelteKit dashboard
@@ -81,13 +88,24 @@ The same Go binary serves two roles, selected by flag at startup:
 
 ```
 SDK: kflow.Run(wf)
-  → Control Plane API: POST /api/v1/workflows/:name/run
+  → Control Plane API (grpc-gateway): POST /api/v1/workflows/:name/run
   → Executor.Run(ctx, execID, graph, input)
       for each state:
         1. store.WriteAheadState(...)        ← ALWAYS first, no exceptions
         2. store.MarkRunning(...)
         3. Handler(ctx, stateName, input)    ← inline fn / K8s Job / Service dispatch
-        4. store.CompleteState or FailState
+           ┌── RunLocal (in-process):
+           │     HandlerFunc called directly; Executor calls store.CompleteState/FailState
+           ├── K8s Job (Lambda/Go):
+           │     Container dials KFLOW_GRPC_ENDPOINT
+           │     → RunnerService.GetInput(token)   → receives kflow.Input
+           │     → HandlerFunc(ctx, input)
+           │     → RunnerService.CompleteState(token, output)
+           │        OR RunnerService.FailState(token, errMsg)
+           │     RunnerServiceServer calls store.CompleteState / store.FailState
+           └── Service dispatch (Deployment mode):
+                 ServiceDispatcher calls ServiceRunnerService.Invoke via gRPC
+        4. [store already written by RunnerServiceServer or inline path]
       → WSHub.Broadcast(event)              ← synchronous, non-blocking
       → EventWriter.RecordStateTransition() ← separate fire-and-forget goroutine
 ```
@@ -101,7 +119,7 @@ SDK: kflow.Run(wf)
 ### Key Data Flow Invariants
 
 1. **Write-ahead is never bypassed.** `WriteAheadState` → `MarkRunning` → handler → `CompleteState`/`FailState` — always in this order.
-2. **Lambda containers write their own output.** The container calls `store.CompleteState`/`store.FailState` directly. The Control Plane reads via `store.GetStateOutput` after `WaitForJob` returns. The Control Plane never writes on behalf of a container.
+2. **`RunnerServiceServer` is the sole caller of `store.CompleteState`/`store.FailState` for K8s-executed states.** Lambda and Service containers call `RunnerService.CompleteState`/`RunnerService.FailState` via gRPC; the `RunnerServiceServer` on the Control Plane performs the actual store writes. `RunLocal` (in-process) retains direct store calls via the `Executor`. MongoDB is never accessed directly by Lambda Job containers.
 3. **Service-to-service calls are forbidden in v1.** `ServiceDispatcher.Dispatch` is called only by the Executor.
 4. **WS and telemetry are independent.** `WSHub.Broadcast` is synchronous; `EventWriter` is async. No ordering guarantee between a WebSocket event arriving at a client and the ClickHouse row being committed.
 5. **ClickHouse is never read for control-flow.** MongoDB is the sole authority for execution state.
@@ -117,8 +135,92 @@ SDK: kflow.Run(wf)
 | `KFLOW_CLICKHOUSE_DSN` | No | `""` | ClickHouse DSN; empty = telemetry disabled |
 | `KFLOW_OBJECT_STORE_URI` | No | `""` | S3-compatible URI; empty = large outputs return `ErrOutputTooLarge` |
 | `KFLOW_API_KEY` | No | `""` | Bearer token for API auth; empty = auth disabled (dev mode) |
-| `KFLOW_INPUT` | Yes (Lambda) | — | JSON-encoded `kflow.Input` injected by the Executor into Lambda Job containers |
-| `KFLOW_EXECUTION_ID` | Yes (Lambda) | — | Execution UUID injected into Lambda Job containers |
+| `KFLOW_GRPC_PORT` | No | `8080` | gRPC + grpc-gateway public port |
+| `KFLOW_RUNNER_GRPC_PORT` | No | `9090` | RunnerService internal port (not exposed outside cluster) |
+| `KFLOW_RUNNER_GRPC_ENDPOINT` | No | `kflow-cp.kflow.svc.cluster.local:9090` | RunnerService address injected into Job containers |
+| `KFLOW_RUNNER_TOKEN_SECRET` | Yes (prod) | — | HMAC-SHA256 key for state tokens. Min 32 bytes. Never logged. |
+| `KFLOW_GRPC_TLS_CERT` | No | `""` | TLS cert file path for gRPC. Empty = no TLS (dev only). |
+| `KFLOW_GRPC_TLS_KEY` | No | `""` | TLS key file path for gRPC. |
+| `KFLOW_SERVICE_GRPC_PORT` | No | `9091` | Port that Deployment-mode Service pods expose for `ServiceRunnerService` |
+| `KFLOW_STATE_TOKEN` | Yes (Lambda) | — | HMAC-SHA256 signed token authorising this state execution; injected into Job containers |
+| `KFLOW_EXECUTION_ID` | Yes (Lambda) | — | Execution UUID injected into Lambda Job containers (logging/observability only) |
+
+---
+
+## Clean Architecture & Domain-Driven Design
+
+kflow follows Clean Architecture and Domain-Driven Design principles. The existing package structure already implements these layers — the vocabulary below makes that structure explicit and guides every future implementation decision.
+
+### CA Layer Map
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  Interface Adapters                                                         │
+│    internal/api/          grpc-gateway HTTP mux, WSHub, auth middleware     │
+│    internal/grpc/         gRPC server, interceptors, gateway wiring         │
+│    cmd/orchestrator/      Binary entry point, composition root              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  Application Layer                                                          │
+│    internal/engine/       Executor, K8sExecutor (use cases)                 │
+│    internal/controller/   ServiceDispatcher (use case)                      │
+│    internal/runner/       RunnerServiceServer (use case: container callback)│
+├─────────────────────────────────────────────────────────────────────────────┤
+│  Domain Layer (no external imports)                                         │
+│    pkg/kflow/             Workflow, TaskDef, ServiceDef, Input, Output,     │
+│                           RetryPolicy, HandlerFunc — public SDK types       │
+│    internal/store/        Store interface (Repository), ExecutionRecord,    │
+│                           StateRecord, ServiceRecord, Status                │
+│    internal/engine/       Graph, Node (Domain Services)                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  Infrastructure Layer                                                       │
+│    internal/store/        MongoStore, MemoryStore, ObjectStore              │
+│    internal/k8s/          K8s client, Job/Deployment/Ingress CRUD           │
+│    internal/telemetry/    ClickHouse — Anti-Corruption Layer (ACL)          │
+│    internal/config/       Environment-variable loader                       │
+│    internal/gen/          buf-generated protobuf + gRPC + gateway code      │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### DDD Construct Mapping
+
+| DDD Construct | kflow Type(s) |
+|---|---|
+| Aggregate Root | `Workflow` (pkg/kflow), `ExecutionRecord` (internal/store), `ServiceRecord` (internal/store) |
+| Entity | `ExecutionRecord` (identity: UUID), `StateRecord` (identity: execID+stateName+attempt), `TaskDef` (identity: name within Workflow) |
+| Value Object | `Input`/`Output`, `RetryPolicy`, `Step`/`StepBuilder`, `Status`, `ServiceStatus` |
+| Repository | `store.Store` interface |
+| Domain Service | `Graph` (compiles Workflow → DAG), `Executor` (drives state machine) |
+| Application Service | `K8sExecutor`, `ServiceDispatcher`, `RunnerServiceServer` |
+| Domain Event | `WSEvent`, `StateTransitionPayload`, `ServiceUpdatePayload` |
+| Anti-Corruption Layer | `internal/telemetry` (domain transitions → ClickHouse append-only schema) |
+
+### Three Bounded Contexts
+
+1. **Workflow Execution** — `pkg/kflow`, `internal/engine`, `internal/store`; owns the Execution aggregate and the write-ahead protocol.
+2. **Service Management** — `internal/controller`, `internal/k8s` (Deployments/Ingress); owns the Service aggregate.
+3. **Observability (Read Model)** — `internal/telemetry`, `ui/`; append-only, never controls execution.
+
+### Dependency Rules (enforce in CI)
+
+1. `pkg/kflow/` imports nothing from `internal/`.
+2. `internal/store/` (interface + record types) imports only `pkg/kflow/` and stdlib.
+3. `internal/engine/` imports `internal/store/` and `pkg/kflow/`; must NOT import `internal/api/` or `internal/k8s/`.
+4. `internal/telemetry/` imports only `internal/store/` Status types + stdlib/ClickHouse driver; must NOT import engine or api.
+5. `internal/k8s/` imports only `pkg/kflow/` and stdlib/client-go; must NOT import store or engine.
+6. `internal/controller/` imports store, k8s, telemetry; must NOT import api.
+7. `internal/runner/` imports store, internal/gen; must NOT import engine or api.
+8. `cmd/orchestrator/` is the **composition root** — the only place where all layers wire together.
+
+### Write-Ahead as Domain Invariant
+
+`WriteAheadState` → `MarkRunning` → handler → `CompleteState`/`FailState` is the Execution aggregate's primary consistency boundary. `Executor` is the only code that orchestrates this sequence. For K8s-executed states, `RunnerServiceServer` is the sole entity that calls `store.CompleteState`/`store.FailState` — no container accesses MongoDB directly.
+
+### Compile-Time Interface Assertions
+
+```go
+var _ store.Store = (*MemoryStore)(nil)
+var _ store.Store = (*MongoStore)(nil)
+```
 
 ---
 
@@ -140,6 +242,7 @@ All design decisions are documented in `docs/phases/`. Read the relevant phase f
 | 10 | `phase-10-helm-chart.md` | Helm chart |
 | 11 | `phase-11-auth.md` | Bearer token auth, session tokens, `/healthz`+`/readyz` exemption |
 | 12 | `phase-12-graph-protocol.md` | Workflow graph JSON schema, large output handling, `ObjectStore` |
+| 13 | `phase-13-grpc-proto.md` | Proto schema definitions, buf toolchain, `RunnerService`, grpc-gateway setup, state token security |
 
 ---
 
@@ -163,7 +266,7 @@ Follow these rules when implementing any package in this project.
 
 - **Validate all user-supplied identifiers** (workflow names, state names, execution IDs) against an allowlist pattern (e.g., `^[a-zA-Z0-9_-]{1,128}$`) before using them in MongoDB queries, Kubernetes resource names, or log messages.
 - **Never interpolate user input into Kubernetes resource names or labels** without sanitization. Resource names that fail DNS subdomain rules must be rejected, not silently truncated.
-- **Treat `KFLOW_INPUT` as untrusted.** The JSON payload injected into Lambda containers is user-controlled. Unmarshal into typed structs; do not pass raw JSON strings to shell commands or template engines.
+- **Validate `KFLOW_STATE_TOKEN` server-side before any store operation.** The token passed by Lambda Job containers must be verified using HMAC-SHA256 (`internal/runner/token.go`) before `RunnerServiceServer` processes any `CompleteState` or `FailState` call. Token expiry must be checked. Use `subtle.ConstantTimeCompare` for the signature comparison.
 
 ### Kubernetes Security
 
@@ -209,5 +312,5 @@ Follow these rules when implementing any package in this project.
 
 - **MongoDB, not Postgres.** AGENTS.md line 229 contains a stray "Postgres" reference — this is an error. MongoDB is the canonical state store throughout.
 - **`/healthz` and `/readyz` are always auth-exempt.** Kubernetes probes must reach them without credentials.
-- **`handler_ref = ""`** for all Go in-process states. Non-empty values are reserved for the future multi-language runner protocol (not yet defined).
+- **`handler_ref = ""`** for all Go in-process states. Non-empty values are reserved for the multi-language runner protocol; Python/Rust containers communicate with the Control Plane via gRPC `RunnerService` (Phase 13).
 - The `docs/phases/` files are the specification. AGENTS.md is the higher-level design narrative. When they conflict, the phase file is more authoritative (it reflects later, more detailed decisions).

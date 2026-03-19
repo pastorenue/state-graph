@@ -392,12 +392,13 @@ fn main() {
 
 ### Execution Model for Non-Go Languages
 
-The Go shared-binary `--state=<name>` strategy does not apply to Python and Rust containers. Instead, each language runtime uses its own container image. The **runner protocol** — how the Control Plane communicates with non-Go containers at runtime (e.g. HTTP JSON, stdin/stdout, gRPC) — is deferred as an open question.
+The Go shared-binary `--state=<name>` strategy does not apply to Python and Rust containers. Instead, each language runtime uses its own container image. The **runner protocol** is gRPC `RunnerService` (defined in `proto/kflow/v1/runner.proto`, Phase 13).
 
 Each language's `kflow.run()` / `kflow::run()` entry point:
-1. Detects a runtime invocation signal (flag, env var, or socket — TBD per runner protocol decision)
-2. Executes the named state/service handler
-3. Returns output via the agreed protocol
+1. Detects the `--state=<name>` flag at startup
+2. Dials `KFLOW_GRPC_ENDPOINT` and calls `RunnerService.GetInput(token)` to retrieve input
+3. Executes the named state/service handler
+4. Reports output via `RunnerService.CompleteState(token, output)` or `RunnerService.FailState(token, errMsg)`
 
 ---
 

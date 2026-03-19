@@ -6,6 +6,20 @@ Replace `MemoryStore` with a durable `MongoStore` that implements the same `Stor
 
 ---
 
+## DDD Classification
+
+| DDD Construct | Type(s) in this phase |
+|---|---|
+| Infrastructure Repository | `MongoStore` — production implementation of the `store.Store` Repository interface |
+| Infrastructure Mapping Types | `executionDoc`, `stateDoc` — unexported BSON structs; never exposed outside `mongo_store.go` |
+| Application Service | `LoadConfig` (environment loader; composition root wires this into the binary) |
+
+**Anti-corruption rule:** `MongoStore` must wrap all MongoDB errors in domain sentinels (`ErrStateNotFound`, `ErrStateAlreadyTerminal`, etc.) before returning. Callers must never receive raw `mongo.CommandError` or driver-specific types.
+
+**Go convention:** The unexported `executionDoc`/`stateDoc` structs are infrastructure mapping types only. They must never leak across package boundaries. The `Store` interface types (`ExecutionRecord`, `StateRecord`) are the domain contract.
+
+---
+
 ## Phase Dependencies
 
 - **Phase 1**: `pkg/kflow` types (`Input`, `Output`) must be stable.

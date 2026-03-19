@@ -6,6 +6,24 @@ Implement the in-process state machine: the `Store` interface and `MemoryStore`,
 
 ---
 
+## DDD Classification
+
+| DDD Construct | Type(s) in this phase |
+|---|---|
+| Aggregate Root | `ExecutionRecord` (owns the lifecycle of a single workflow run) |
+| Entity | `ExecutionRecord` (identity: UUID), `StateRecord` (identity: execID+stateName+attempt) |
+| Value Object | `Status` (string enum), `StateRecord.Input`/`Output` |
+| Repository | `store.Store` interface |
+| Domain Service | `Graph` (compiles `Workflow` → validated DAG), `Executor` (drives write-ahead → run → transition loop) |
+| Application Service | `RunLocal` (orchestrates in-process execution for dev/test) |
+| Infrastructure | `MemoryStore` (in-process only; never in production) |
+
+**Write-ahead as aggregate consistency boundary:** The sequence `WriteAheadState` → `MarkRunning` → handler → `CompleteState`/`FailState` is the `ExecutionRecord` aggregate's primary consistency boundary. `Executor` is the only code that orchestrates this sequence.
+
+**Control Plane as sole MongoDB writer (gRPC path):** For K8s-executed states (Phases 4+), `RunnerServiceServer` on the Control Plane calls `store.CompleteState`/`store.FailState` on behalf of containers. Containers never access MongoDB directly. The `MemoryStore`/`RunLocal` path is the only case where `Executor` calls `CompleteState`/`FailState` directly.
+
+---
+
 ## Phase Dependencies
 
 - **Phase 1** must be complete. All types in `pkg/kflow/` are assumed stable.
@@ -311,7 +329,7 @@ handler := func(ctx context.Context, stateName string, input kflow.Input) (kflow
 ## Design Invariants
 
 1. `WriteAheadState` is always called before any handler invocation — without exception.
-2. `MemoryStore` is only used by `RunLocal` and tests. It must never be used in production execution paths (Phases 3–6 use `MongoStore`).
+2. `MemoryStore` is only used by `RunLocal` and tests. It must never be used in production execution paths (Phases 3–6 use `MongoStore`). In the `MemoryStore`/`RunLocal` path, `Executor` calls `store.CompleteState`/`store.FailState` directly. In the K8s path (Phase 4+), `RunnerServiceServer` is the sole caller of these methods — no container accesses MongoDB directly.
 3. `Graph.Build()` calls `wf.Validate()` — callers do not need to call it separately.
 4. `Executor` has no knowledge of Kubernetes. Transport is injected via the `Handler` func.
 5. The entry state is always the first step in `wf.Flow()`. If `Flow()` was not called, `Build()` returns `ErrNoEntryPoint`.

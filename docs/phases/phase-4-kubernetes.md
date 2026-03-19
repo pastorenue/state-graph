@@ -6,6 +6,20 @@ Implement Kubernetes Job dispatch for workflow states. Replace the in-process `E
 
 ---
 
+## DDD Classification
+
+| DDD Construct | Type(s) in this phase |
+|---|---|
+| Infrastructure Adapter | `internal/k8s.Client` — wraps Kubernetes client-go; translates domain Job specs into K8s API calls |
+| Application Service | `K8sExecutor` — orchestrates Job dispatch, WaitForJob, and output retrieval; calls `Executor` internally |
+| Infrastructure | `JobSpec`, `EnvVar`, `WaitForJob`, `JobResult` — K8s-specific types; never imported by `internal/engine/` or `internal/store/` |
+
+**Dependency rule:** `internal/k8s/` must NOT import `internal/store/` or `internal/engine/`. Kubernetes resources are pure infrastructure; they know nothing of the domain model. `K8sExecutor` lives in `internal/engine/` (application layer) to wire K8s infrastructure into the execution use case.
+
+**gRPC runner path (replaces direct MongoDB access in Job containers):** Lambda Job containers no longer connect to MongoDB. They dial `KFLOW_GRPC_ENDPOINT` (port 9090, internal) and use `RunnerService` to obtain input and report output. See Phase 13 for the proto definition and token security. The Control Plane's `RunnerServiceServer` (`internal/runner/`) is the sole caller of `store.CompleteState`/`store.FailState` for K8s states.
+
+---
+
 ## Phase Dependencies
 
 - **Phase 1**: `pkg/kflow` types — `HandlerFunc`, `Input`, `Output`, sentinel errors.
@@ -168,20 +182,23 @@ Execution sequence per state:
 ```
 1. [Write-ahead is called by Executor before this Handler is invoked]
 2. Compute jobName(execID, stateName)
-3. client.CreateJob(ctx, JobSpec{
+3. Generate KFLOW_STATE_TOKEN via internal/runner.GenerateStateToken(execID, stateName, attempt, secret)
+4. client.CreateJob(ctx, JobSpec{
        Name:  jobName,
        Image: e.Image,
        Args:  ["--state=" + stateName],
        Env: [
-           {Name: "KFLOW_EXECUTION_ID", Value: execID},
-           {Name: "KFLOW_MONGO_URI",    Value: cfg.MongoURI},
-           {Name: "KFLOW_MONGO_DB",     Value: cfg.MongoDB},
+           {Name: "KFLOW_EXECUTION_ID",    Value: execID},         // observability only
+           {Name: "KFLOW_STATE_TOKEN",     Value: stateToken},     // HMAC-signed token
+           {Name: "KFLOW_GRPC_ENDPOINT",   Value: cfg.RunnerGRPCEndpoint}, // e.g. kflow-cp.kflow.svc.cluster.local:9090
        ],
    })
-4. client.WaitForJob(ctx, jobName)
-5. If JobResult.Failed → return error (the state's error is already written to the store by the Job container)
-6. store.GetStateOutput(ctx, execID, stateName) → return output
-7. client.DeleteJob(ctx, jobName)  [best-effort cleanup; non-fatal]
+   Note: KFLOW_MONGO_URI, KFLOW_MONGO_DB, and KFLOW_INPUT are NOT injected — containers
+   do not access MongoDB directly and do not receive input via env var.
+5. client.WaitForJob(ctx, jobName)
+6. If JobResult.Failed → return error (RunnerServiceServer already wrote FailState to the store)
+7. store.GetStateOutput(ctx, execID, stateName) → return output (written by RunnerServiceServer)
+8. client.DeleteJob(ctx, jobName)  [best-effort cleanup; non-fatal]
 ```
 
 If `Telemetry` is non-nil, call `Telemetry.RecordStateTransition` at steps 3 (→ Running) and after step 4 (→ Completed or Failed).
@@ -194,26 +211,27 @@ When the binary is invoked with `--state=<stateName>`:
 
 ```
 1. Parse flags: --state=<name>
-2. Read env vars: KFLOW_EXECUTION_ID, KFLOW_MONGO_URI, KFLOW_MONGO_DB
-3. Create MongoStore using the env var config
-4. Call store.GetStateOutput(ctx, execID, prevStateName) to get Input
-   OR store.GetExecution(ctx, execID).Input if this is the first state
+2. Read env vars: KFLOW_STATE_TOKEN, KFLOW_GRPC_ENDPOINT, KFLOW_EXECUTION_ID
+3. Dial KFLOW_GRPC_ENDPOINT (internal Control Plane gRPC port, e.g. :9090)
+4. RunnerService.GetInput(token) → kflow.Input
+   (Control Plane validates token and returns the state's Input from the store)
 5. Look up the HandlerFunc for stateName in the workflow's task registry
 6. Call the HandlerFunc(ctx, input)
-7. On success: store.CompleteState(ctx, execID, stateName, output)
-   On error:   store.FailState(ctx, execID, stateName, errMsg)
+7. On success: RunnerService.CompleteState(token, output)
+   On error:   RunnerService.FailState(token, errMsg)
+   (Control Plane's RunnerServiceServer performs the actual store.CompleteState / store.FailState)
 8. Exit 0 on success, Exit 1 on error
 ```
 
-The state name to `HandlerFunc` lookup uses the `Workflow.tasks` map (same process, same binary image). Step 4 determines input by reading the predecessor state's output from the store. The predecessor state name is determined by the graph (also reconstructed in-process).
+The binary does NOT connect to MongoDB directly. The predecessor state's input is retrieved from the Control Plane via `RunnerService.GetInput`. The token authorises this specific (execID, stateName, attempt) tuple.
 
 **Env vars consumed by `--state` path:**
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `KFLOW_EXECUTION_ID` | Yes | The UUID of the current workflow execution |
-| `KFLOW_MONGO_URI` | Yes | MongoDB connection URI |
-| `KFLOW_MONGO_DB` | No | MongoDB database name (default: `kflow`) |
+| `KFLOW_EXECUTION_ID` | Yes | The UUID of the current workflow execution (logging/observability) |
+| `KFLOW_STATE_TOKEN` | Yes | HMAC-SHA256 signed token authorising this state execution |
+| `KFLOW_GRPC_ENDPOINT` | Yes | RunnerService address (e.g. `kflow-cp.kflow.svc.cluster.local:9090`) |
 
 ---
 
@@ -247,10 +265,10 @@ Startup sequence for server mode (no flag):
 3. `jobName()` output is deterministic for a given `(execID, stateName)` pair. This allows idempotent Job creation checks.
 4. `DeleteJob` is always best-effort: the executor must continue even if deletion fails (log the error, do not return it).
 5. Write-ahead is performed by `Executor` before calling the K8s Handler. The Handler never calls `WriteAheadState` or `MarkRunning` — these are the Executor's responsibility.
-6. The `--state=<name>` binary writes exactly one `CompleteState` or `FailState` and then exits. It never loops.
+6. The `--state=<name>` binary calls `RunnerService.CompleteState` or `RunnerService.FailState` exactly once and then exits. It never loops, and it never writes to MongoDB directly.
 7. `K8sExecutor.Telemetry` field is `nil`-safe. All calls are guarded with `if e.Telemetry != nil`.
 8. The orchestrator binary and the task-execution binary are the **same image**. Flag dispatch is the only mechanism that selects the execution path.
-9. `KFLOW_EXECUTION_ID` and `KFLOW_MONGO_URI` are required env vars for the `--state=<name>` path; the binary must exit with a clear error message if they are absent.
+9. `KFLOW_EXECUTION_ID`, `KFLOW_STATE_TOKEN`, and `KFLOW_GRPC_ENDPOINT` are required env vars for the `--state=<name>` path; the binary must exit with a clear error message if they are absent. `KFLOW_MONGO_URI` must NOT be injected into Job containers.
 10. In-cluster and out-of-cluster kubeconfig are tried in that order. The orchestrator must work both inside the cluster (production) and outside (local development with a kubeconfig).
 
 ---
@@ -264,6 +282,8 @@ Startup sequence for server mode (no flag):
 - [ ] Unit test: `k8sHandler` calls `CreateJob`, then `WaitForJob`, then `GetStateOutput`, then `DeleteJob` in that order (use a mock K8s client and mock store).
 - [ ] Integration test (requires `KFLOW_TEST_K8S`): end-to-end workflow execution via K8s Jobs completes successfully.
 - [ ] `--state=<name>` path with missing `KFLOW_EXECUTION_ID` exits non-zero with a readable error.
-- [ ] `--state=<name>` path with missing `KFLOW_MONGO_URI` exits non-zero with a readable error.
+- [ ] `--state=<name>` path with missing `KFLOW_STATE_TOKEN` exits non-zero with a readable error.
+- [ ] `--state=<name>` path with missing `KFLOW_GRPC_ENDPOINT` exits non-zero with a readable error.
+- [ ] Job spec does NOT include `KFLOW_MONGO_URI`, `KFLOW_MONGO_DB`, or `KFLOW_INPUT` env vars.
 - [ ] `WaitForJob` uses Watch, not polling (verify: no `time.Sleep` in `job.go`).
 - [ ] `K8sExecutor` with `Telemetry: nil` does not panic during execution.

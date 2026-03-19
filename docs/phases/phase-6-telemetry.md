@@ -6,6 +6,20 @@ Add append-only observability storage in ClickHouse for execution events, servic
 
 ---
 
+## DDD Classification
+
+| DDD Construct | Type(s) in this phase |
+|---|---|
+| Anti-Corruption Layer (ACL) | `internal/telemetry` as a whole — translates domain state transitions into ClickHouse's append-only schema |
+| ACL Responsibilities | **Translate:** convert `store.Status` enums and `WSEvent` payloads into ClickHouse row types. **Isolate:** ClickHouse schema changes never propagate into the domain model. **Decouple:** telemetry writes are fire-and-forget; execution correctness is independent of ClickHouse availability. |
+| Infrastructure Adapter | `EventWriter`, `MetricsWriter`, `LogWriter` — ClickHouse write path; never read for control-flow |
+
+**ACL rule:** `internal/telemetry/` must import only `internal/store/` Status types, `pkg/kflow/` Input/Output types, and stdlib/ClickHouse driver. It must NOT import `internal/engine/`, `internal/api/`, or `internal/runner/`. No ClickHouse reads in the execution path — MongoDB is the sole authority for execution state.
+
+**Observability Bounded Context:** `internal/telemetry` belongs to the Observability (Read Model) bounded context. It is a consumer of domain events, not a participant in domain logic. The dashboard (`ui/`) queries ClickHouse directly for display only.
+
+---
+
 ## Phase Dependencies
 
 - **Phase 1**: `pkg/kflow` types.
