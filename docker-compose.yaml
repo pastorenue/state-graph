@@ -18,6 +18,32 @@ services:
       clickhouse:
         condition: service_healthy
 
+  test:
+    image: golang:1.22
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+    command: go test -race ./...
+    profiles:
+      - test
+
+  test-integration:
+    image: golang:1.22
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+    environment:
+      KFLOW_TEST_MONGO_URI: "mongodb://mongo:27017"
+      KFLOW_TEST_CLICKHOUSE_DSN: "clickhouse://clickhouse:9000"
+    command: go test -race -tags integration ./...
+    profiles:
+      - test-integration
+    depends_on:
+      mongo:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+
   mongo:
     image: mongo:7
     ports:

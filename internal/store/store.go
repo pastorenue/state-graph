@@ -1,0 +1,58 @@
+package store
+
+import (
+	"context"
+	"errors"
+	"time"
+
+	"github.com/pastorenue/kflow/pkg/kflow"
+)
+
+type Status string
+
+const (
+	StatusPending   Status = "Pending"
+	StatusRunning   Status = "Running"
+	StatusCompleted Status = "Completed"
+	StatusFailed    Status = "Failed"
+)
+
+var (
+	ErrExecutionNotFound    = errors.New("store: execution not found")
+	ErrStateNotFound        = errors.New("store: state record not found")
+	ErrStateNotCompleted    = errors.New("store: state is not in Completed status")
+	ErrStateAlreadyTerminal = errors.New("store: state record already in terminal status")
+)
+
+type ExecutionRecord struct {
+	ID        string
+	Workflow  string
+	Status    Status
+	Input     kflow.Input
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+type StateRecord struct {
+	ExecutionID string
+	StateName   string
+	Status      Status
+	Input       kflow.Input
+	Output      kflow.Output
+	Error       string
+	Attempt     int
+	ResumeAt    *time.Time // non-nil for Wait states only
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+type Store interface {
+	CreateExecution(ctx context.Context, record ExecutionRecord) error
+	GetExecution(ctx context.Context, execID string) (ExecutionRecord, error)
+	UpdateExecution(ctx context.Context, execID string, status Status) error
+	WriteAheadState(ctx context.Context, record StateRecord) error
+	MarkRunning(ctx context.Context, execID, stateName string) error
+	CompleteState(ctx context.Context, execID, stateName string, output kflow.Output) error
+	FailState(ctx context.Context, execID, stateName string, errMsg string) error
+	GetStateOutput(ctx context.Context, execID, stateName string) (kflow.Output, error)
+}

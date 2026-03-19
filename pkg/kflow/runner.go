@@ -10,12 +10,12 @@ func Run(wf *Workflow) {
 }
 
 // RunLocal executes the workflow in-process using MemoryStore (no Kubernetes).
-// It panics with the validation error if the workflow is invalid.
+// See internal/local for the implementation used in tests and local development.
 func RunLocal(wf *Workflow) {
 	if err := wf.Validate(); err != nil {
 		panic("kflow.RunLocal: invalid workflow: " + err.Error())
 	}
-	panic("kflow.RunLocal: not implemented")
+	panic("kflow.RunLocal: not implemented; use internal/local.RunLocal for in-process execution")
 }
 
 // RunService registers and starts a persistent or on-demand Service.
