@@ -151,6 +151,13 @@ SDK: kflow.Run(wf)
 
 kflow follows Clean Architecture and Domain-Driven Design principles. The existing package structure already implements these layers — the vocabulary below makes that structure explicit and guides every future implementation decision.
 
+### Development Instructions
+- Use little comments and avoid over-engineering
+- After every new feature is added, write tests, run tests, run linters and ensure all looks good and create a commit.
+- After every feature implementation, create a skill for it.
+- Run the project in docker - use Dockerfile and docker-compose.yaml files
+
+
 ### CA Layer Map
 
 ```

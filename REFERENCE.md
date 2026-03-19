@@ -2,7 +2,9 @@
 
 ## Project Overview
 
-This project is a **serverless-style workflow orchestration tool** built in Go that runs on top of Kubernetes. It is conceptually similar to AWS Step Functions or AWS Lambda — but self-hosted, cost-optimized, and Kubernetes-native.
+This project is a **serverless-style workflow orchestration tool** built in Go that runs on top of Kubernetes. It is conceptually similar to AWS Step Functions or AWS Lambda — but self-hosted, cost-optimized, and Kubernetes-native. 
+
+The goal is to be able to scale 100x with speed and low latency. 
 
 Users write only their business logic. The system handles containerization, scheduling, and lifecycle management by spinning up Kubernetes Jobs, Deployments, or Pods as needed.
 
