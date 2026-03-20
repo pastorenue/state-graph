@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(ls:*)",
-      "Bash(docker run:*)"
+      "Bash(docker run:*)",
+      "Bash(tee:*)"
     ]
   }
 }

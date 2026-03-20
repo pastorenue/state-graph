@@ -19,6 +19,19 @@ services:
       clickhouse:
         condition: service_healthy
 
+  web-ui:
+    image: node:22-alpine
+    working_dir: /app
+    volumes:
+      - ./ui:/app
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_TARGET: "http://orchestrator:8080"
+    command: sh -c "npm install && npm run dev -- --host"
+    depends_on:
+      - orchestrator
+
   test:
     image: golang:1.22
     working_dir: /workspace

@@ -261,6 +261,8 @@ func runServerMode() {
 		if runErr != nil {
 			log.Printf("trigger: execution %s failed: %v", execID, runErr)
 			_ = ms.UpdateExecution(context.Background(), execID, store.StatusFailed)
+		} else {
+			_ = ms.UpdateExecution(context.Background(), execID, store.StatusCompleted)
 		}
 	}
 

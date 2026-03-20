@@ -5,7 +5,7 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 go build -o orchestrator ./cmd/orchestrator
 
-FROM node:20-alpine AS build-ui
+FROM node:22-alpine AS build-ui
 WORKDIR /ui
 COPY ui/package*.json ./
 RUN npm ci
