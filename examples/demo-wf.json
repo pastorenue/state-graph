@@ -1,0 +1,13 @@
+{
+  "graph": {
+    "name": "demo-wf",
+    "states": [
+      {"name": "Step1", "kind": "task"},
+      {"name": "Step2", "kind": "task"}
+    ],
+    "steps": [
+      {"name": "Step1", "next": "Step2"},
+      {"name": "Step2", "is_end": true}
+    ]
+  }
+}

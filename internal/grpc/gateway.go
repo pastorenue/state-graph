@@ -31,12 +31,15 @@ func NewGatewayMux(
 	ch *telemetry.Client,
 	apiKey string,
 	ready *atomic.Bool,
-	workflows []string,
-	trigger func(execID, wfName string, input kflow.Input),
+	trigger func(execID string, graph *kflowv1.WorkflowGraph, input kflow.Input),
 ) (http.Handler, error) {
 	gwMux := runtime.NewServeMux()
 
-	wfSrv := &workflowServiceServer{store: st, workflows: workflows, trigger: trigger}
+	wfSrv := &workflowServiceServer{
+		store:     st,
+		workflows: make(map[string]*kflowv1.WorkflowGraph),
+		trigger:   trigger,
+	}
 	execSrv := &executionServiceServer{store: st}
 	svcSrv := &serviceManagementServiceServer{store: st}
 	telSrv := &telemetryServiceServer{ch: ch}
@@ -110,8 +113,8 @@ func authMiddleware(apiKey string, next http.Handler) http.Handler {
 type workflowServiceServer struct {
 	kflowv1.UnimplementedWorkflowServiceServer
 	store     store.Store
-	workflows []string
-	trigger   func(execID, wfName string, input kflow.Input)
+	workflows map[string]*kflowv1.WorkflowGraph
+	trigger   func(execID string, graph *kflowv1.WorkflowGraph, input kflow.Input)
 }
 
 func (s *workflowServiceServer) RegisterWorkflow(_ context.Context, req *kflowv1.RegisterWorkflowRequest) (*kflowv1.RegisterWorkflowResponse, error) {
@@ -119,44 +122,30 @@ func (s *workflowServiceServer) RegisterWorkflow(_ context.Context, req *kflowv1
 		return nil, status.Error(codes.InvalidArgument, "workflow name is required")
 	}
 	name := req.GetGraph().GetName()
-	for _, wf := range s.workflows {
-		if wf == name {
-			return &kflowv1.RegisterWorkflowResponse{WorkflowName: name}, nil
-		}
-	}
-	s.workflows = append(s.workflows, name)
+	s.workflows[name] = req.GetGraph()
 	return &kflowv1.RegisterWorkflowResponse{WorkflowName: name}, nil
 }
 
 func (s *workflowServiceServer) GetWorkflow(_ context.Context, req *kflowv1.GetWorkflowRequest) (*kflowv1.GetWorkflowResponse, error) {
-	for _, wf := range s.workflows {
-		if wf == req.GetName() {
-			return &kflowv1.GetWorkflowResponse{
-				Graph: &kflowv1.WorkflowGraph{Name: wf},
-			}, nil
-		}
+	graph, ok := s.workflows[req.GetName()]
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "workflow %q not found", req.GetName())
 	}
-	return nil, status.Errorf(codes.NotFound, "workflow %q not found", req.GetName())
+	return &kflowv1.GetWorkflowResponse{Graph: graph}, nil
 }
 
 func (s *workflowServiceServer) ListWorkflows(_ context.Context, _ *kflowv1.ListWorkflowsRequest) (*kflowv1.ListWorkflowsResponse, error) {
 	graphs := make([]*kflowv1.WorkflowGraph, 0, len(s.workflows))
-	for _, wf := range s.workflows {
-		graphs = append(graphs, &kflowv1.WorkflowGraph{Name: wf})
+	for _, g := range s.workflows {
+		graphs = append(graphs, g)
 	}
 	return &kflowv1.ListWorkflowsResponse{Workflows: graphs}, nil
 }
 
 func (s *workflowServiceServer) RunWorkflow(ctx context.Context, req *kflowv1.RunWorkflowRequest) (*kflowv1.RunWorkflowResponse, error) {
 	name := req.GetName()
-	found := false
-	for _, wf := range s.workflows {
-		if wf == name {
-			found = true
-			break
-		}
-	}
-	if !found {
+	graph, ok := s.workflows[name]
+	if !ok {
 		return nil, status.Errorf(codes.NotFound, "workflow %q not found", name)
 	}
 
@@ -176,7 +165,7 @@ func (s *workflowServiceServer) RunWorkflow(ctx context.Context, req *kflowv1.Ru
 	}
 
 	if s.trigger != nil {
-		go s.trigger(execID, name, input)
+		go s.trigger(execID, graph, input)
 	}
 
 	return &kflowv1.RunWorkflowResponse{ExecutionId: execID}, nil

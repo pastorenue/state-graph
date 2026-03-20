@@ -19,12 +19,14 @@ import (
 	"github.com/pastorenue/kflow/internal/api"
 	"github.com/pastorenue/kflow/internal/config"
 	"github.com/pastorenue/kflow/internal/controller"
+	"github.com/pastorenue/kflow/internal/engine"
 	kflowv1 "github.com/pastorenue/kflow/internal/gen/kflow/v1"
 	grpcsrv "github.com/pastorenue/kflow/internal/grpc"
 	k8sclient "github.com/pastorenue/kflow/internal/k8s"
 	"github.com/pastorenue/kflow/internal/runner"
 	"github.com/pastorenue/kflow/internal/store"
 	"github.com/pastorenue/kflow/internal/telemetry"
+	"github.com/pastorenue/kflow/pkg/kflow"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -188,14 +190,17 @@ func runServerMode() {
 
 	k8s, err := k8sclient.NewClient(cfg.Namespace)
 	if err != nil {
-		log.Fatalf("k8s: %v", err)
+		log.Printf("k8s: WARNING cannot init client: %v (running without K8s)", err)
+		k8s = nil
+	} else {
+		log.Printf("k8s: client initialised (namespace=%s)", k8s.Namespace())
 	}
-	log.Printf("k8s: client initialised (namespace=%s)", k8s.Namespace())
 
 	hub := api.NewWSHub()
 
 	var chClient *telemetry.Client
 	var metricsWriter *telemetry.MetricsWriter
+	var eventWriter *telemetry.EventWriter
 	if cfg.ClickHouseDSN != "" {
 		chClient, err = telemetry.NewClient(ctx, cfg.ClickHouseDSN)
 		if err != nil {
@@ -207,6 +212,7 @@ func runServerMode() {
 			} else {
 				log.Println("telemetry: connected to ClickHouse")
 				metricsWriter = telemetry.NewMetricsWriter(chClient)
+				eventWriter = telemetry.NewEventWriter(chClient)
 			}
 		}
 	} else {
@@ -223,7 +229,42 @@ func runServerMode() {
 
 	runnerSrv := runner.NewRunnerServiceServer(ms, cfg.RunnerTokenSecret)
 
-	srv, err := grpcsrv.NewGRPCServer(cfg, ms, k8s, hub, disp, runnerSrv, chClient, nil, nil)
+	trigger := func(execID string, graph *kflowv1.WorkflowGraph, input kflow.Input) {
+		g, err := engine.BuildFromProto(graph)
+		if err != nil {
+			log.Printf("trigger: build graph %q: %v", graph.GetName(), err)
+			_ = ms.UpdateExecution(context.Background(), execID, store.StatusFailed)
+			return
+		}
+
+		var runErr error
+		if k8s != nil {
+			ke := &engine.K8sExecutor{
+				Store:             ms,
+				K8s:               k8s,
+				Image:             cfg.Image,
+				RunnerEndpoint:    cfg.RunnerGRPCEndpoint,
+				RunnerTokenSecret: cfg.RunnerTokenSecret,
+				Telemetry:         eventWriter,
+			}
+			runErr = ke.Run(context.Background(), execID, g, input)
+		} else {
+			ex := &engine.Executor{
+				Store: ms,
+				Handler: func(_ context.Context, _ string, in kflow.Input) (kflow.Output, error) {
+					return kflow.Output(in), nil
+				},
+			}
+			runErr = ex.Run(context.Background(), execID, g, input)
+		}
+
+		if runErr != nil {
+			log.Printf("trigger: execution %s failed: %v", execID, runErr)
+			_ = ms.UpdateExecution(context.Background(), execID, store.StatusFailed)
+		}
+	}
+
+	srv, err := grpcsrv.NewGRPCServer(cfg, ms, k8s, hub, disp, runnerSrv, chClient, trigger)
 	if err != nil {
 		log.Fatalf("grpc: create server: %v", err)
 	}

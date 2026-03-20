@@ -25,11 +25,7 @@ type Config struct {
 
 	APIKey        string
 	ClickHouseDSN string
-
-	// ObjectStoreURI is the S3-compatible URI for large output offload.
-	// If empty, outputs > 1 MB return ErrOutputTooLarge.
-	// Source: KFLOW_OBJECT_STORE_URI
-	ObjectStoreURI string
+	Image         string // KFLOW_IMAGE: container image for K8s Job execution (optional)
 }
 
 // LoadConfig reads configuration from environment variables.
@@ -99,6 +95,7 @@ func LoadConfig() (*Config, error) {
 		ServiceGRPCPort:    serviceGRPCPort,
 		APIKey:             apiKey,
 		ClickHouseDSN:      os.Getenv("KFLOW_CLICKHOUSE_DSN"),
+		Image:              os.Getenv("KFLOW_IMAGE"),
 	}, nil
 }
 

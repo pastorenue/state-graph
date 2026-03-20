@@ -20,6 +20,7 @@ import (
 	"github.com/pastorenue/kflow/pkg/kflow"
 	grpclib "google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/reflection"
 )
 
 // GRPCServer manages two listeners:
@@ -41,8 +42,7 @@ func NewGRPCServer(
 	disp *controller.ServiceDispatcher,
 	runnerSrv *runner.RunnerServiceServer,
 	ch *telemetry.Client,
-	workflows []string,
-	trigger func(execID, wfName string, input kflow.Input),
+	trigger func(execID string, graph *kflowv1.WorkflowGraph, input kflow.Input),
 ) (*GRPCServer, error) {
 	s := &GRPCServer{cfg: cfg}
 
@@ -66,6 +66,7 @@ func NewGRPCServer(
 
 	s.runnerServer = grpclib.NewServer(runnerOpts...)
 	kflowv1.RegisterRunnerServiceServer(s.runnerServer, runnerSrv)
+	reflection.Register(s.runnerServer)
 
 	// ── Public HTTP/gateway server (:8080) ───────────────────────────────────
 	gwHandler, err := NewGatewayMux(
@@ -75,7 +76,6 @@ func NewGRPCServer(
 		ch,
 		cfg.APIKey,
 		&s.ready,
-		workflows,
 		trigger,
 	)
 	if err != nil {

@@ -1,8 +1,11 @@
 package engine
 
 import (
+	"context"
 	"fmt"
+	"time"
 
+	kflowv1 "github.com/pastorenue/kflow/internal/gen/kflow/v1"
 	"github.com/pastorenue/kflow/pkg/kflow"
 )
 
@@ -79,6 +82,45 @@ func (g *Graph) EntryNode() *Node {
 
 func (g *Graph) Node(name string) *Node {
 	return g.nodes[name]
+}
+
+// BuildFromProto reconstructs a *Graph from a proto WorkflowGraph.
+// Task states get a no-op handler; the caller (K8sExecutor or Executor) is
+// responsible for replacing execution behaviour via its own Handler field.
+func BuildFromProto(proto *kflowv1.WorkflowGraph) (*Graph, error) {
+	wf := kflow.New(proto.GetName())
+
+	for _, s := range proto.GetStates() {
+		var td *kflow.TaskDef
+		switch s.GetKind() {
+		case "wait":
+			td = wf.Wait(s.GetName(), time.Duration(s.GetWaitSeconds())*time.Second)
+		default:
+			td = wf.Task(s.GetName(), func(_ context.Context, _ kflow.Input) (kflow.Output, error) {
+				return kflow.Output{}, nil
+			})
+		}
+		if s.GetCatchState() != "" {
+			td.Catch(s.GetCatchState())
+		}
+	}
+
+	steps := make([]*kflow.StepBuilder, 0, len(proto.GetSteps()))
+	for _, ps := range proto.GetSteps() {
+		sb := kflow.Step(ps.GetName())
+		if ps.GetIsEnd() {
+			sb = sb.End()
+		} else if ps.GetNext() != "" {
+			sb = sb.Next(ps.GetNext())
+		}
+		if ps.GetCatch() != "" {
+			sb = sb.Catch(ps.GetCatch())
+		}
+		steps = append(steps, sb)
+	}
+	wf.Flow(steps...)
+
+	return Build(wf)
 }
 
 func (g *Graph) Next(node *Node, key string) (*Node, error) {

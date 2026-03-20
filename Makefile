@@ -1,4 +1,4 @@
-.PHONY: build test test-race vet lint clean up down ui-install ui-build ui-check ui-dev helm-lint helm-template docker-build proto-gen deps
+.PHONY: build test test-race vet lint clean up down ui-install ui-build ui-check ui-dev helm-lint helm-template docker-build proto-gen deps build-cli install-cli
 
 GO_IMAGE  := golang:1.22
 NODE_IMAGE := node:20-alpine
@@ -92,6 +92,14 @@ deps:
 	docker run --rm -v "$(CURDIR)":/workspace -w /workspace golang:1.22-alpine \
 	  go get google.golang.org/grpc@v1.64.0 \
 	         github.com/grpc-ecosystem/grpc-gateway/v2@v2.20.0
+
+## build-cli: build the kflow CLI binary
+build-cli:
+	$(DOCKER_RUN) go build -o bin/kflow ./cmd/kflow
+
+## install-cli: install the kflow CLI to GOPATH/bin
+install-cli:
+	$(DOCKER_RUN) go install ./cmd/kflow
 
 ## clean: remove build artefacts
 clean:

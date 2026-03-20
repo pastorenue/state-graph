@@ -12,6 +12,7 @@ services:
       KFLOW_GRPC_PORT: "8080"
       KFLOW_RUNNER_GRPC_PORT: "9090"
       KFLOW_RUNNER_GRPC_ENDPOINT: "orchestrator:9090"
+      KFLOW_RUNNER_TOKEN_SECRET: "kflow-dev-secret-key-for-local-docker-compose"
     depends_on:
       mongo:
         condition: service_healthy
