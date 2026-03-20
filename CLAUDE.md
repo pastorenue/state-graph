@@ -152,8 +152,12 @@ SDK: kflow.Run(wf)
 kflow follows Clean Architecture and Domain-Driven Design principles. The existing package structure already implements these layers — the vocabulary below makes that structure explicit and guides every future implementation decision.
 
 ### Development Instructions
+- Always create a new branch for every new phase.
+- To install any go package, use docker
+- Create `make` commands for easy run
 - Use little comments and avoid over-engineering
 - After every new feature is added, write tests, run tests, run linters and ensure all looks good and create a commit.
+- Always ommit `Co-Authored-By` in commit messages
 - After every feature implementation, create a skill for it.
 - Run the project in docker - use Dockerfile and docker-compose.yaml files
 
