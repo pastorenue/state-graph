@@ -15,6 +15,7 @@ import (
 const (
 	collExecutions = "kflow_executions"
 	collStates     = "kflow_states"
+	collServices   = "kflow_services"
 )
 
 var _ Store = (*MongoStore)(nil)
@@ -97,6 +98,16 @@ func (s *MongoStore) EnsureIndexes(ctx context.Context) error {
 	}
 	if _, err := s.db.Collection(collStates).Indexes().CreateMany(ctx, stateIndexes); err != nil {
 		return fmt.Errorf("store: ensure state indexes: %w", err)
+	}
+
+	svcIndexes := []mongo.IndexModel{
+		{
+			Keys:    bson.D{{Key: "status", Value: 1}},
+			Options: options.Index().SetName("services_status_idx"),
+		},
+	}
+	if _, err := s.db.Collection(collServices).Indexes().CreateMany(ctx, svcIndexes); err != nil {
+		return fmt.Errorf("store: ensure service indexes: %w", err)
 	}
 
 	return nil
@@ -274,6 +285,203 @@ func (s *MongoStore) updateLatestState(ctx context.Context, execID, stateName st
 		return ErrStateNotFound
 	}
 	return nil
+}
+
+func (s *MongoStore) ListExecutions(ctx context.Context, filter ExecutionFilter) ([]ExecutionRecord, error) {
+	q := bson.D{}
+	if filter.Workflow != "" {
+		q = append(q, bson.E{Key: "workflow", Value: filter.Workflow})
+	}
+	if filter.Status != "" {
+		q = append(q, bson.E{Key: "status", Value: filter.Status})
+	}
+
+	limit := int64(filter.Limit)
+	if limit <= 0 {
+		limit = 50
+	}
+	skip := int64(filter.Offset)
+
+	cursor, err := s.db.Collection(collExecutions).Find(ctx, q,
+		options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}}).SetLimit(limit).SetSkip(skip),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("store: list executions: %w", err)
+	}
+	defer cursor.Close(ctx)
+
+	var docs []executionDoc
+	if err := cursor.All(ctx, &docs); err != nil {
+		return nil, fmt.Errorf("store: decode executions: %w", err)
+	}
+
+	results := make([]ExecutionRecord, len(docs))
+	for i, d := range docs {
+		results[i] = ExecutionRecord{
+			ID:        d.ID,
+			Workflow:  d.Workflow,
+			Status:    Status(d.Status),
+			Input:     mToInput(d.Input),
+			CreatedAt: d.CreatedAt,
+			UpdatedAt: d.UpdatedAt,
+		}
+	}
+	return results, nil
+}
+
+func (s *MongoStore) ListStates(ctx context.Context, execID string) ([]StateRecord, error) {
+	cursor, err := s.db.Collection(collStates).Find(ctx,
+		bson.D{{Key: "execution_id", Value: execID}},
+		options.Find().SetSort(bson.D{{Key: "attempt", Value: 1}}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("store: list states: %w", err)
+	}
+	defer cursor.Close(ctx)
+
+	var docs []stateDoc
+	if err := cursor.All(ctx, &docs); err != nil {
+		return nil, fmt.Errorf("store: decode states: %w", err)
+	}
+
+	results := make([]StateRecord, len(docs))
+	for i, d := range docs {
+		results[i] = StateRecord{
+			ExecutionID: d.ExecutionID,
+			StateName:   d.StateName,
+			Status:      Status(d.Status),
+			Input:       mToInput(d.Input),
+			Output:      mToInput(d.Output),
+			Error:       d.Error,
+			Attempt:     d.Attempt,
+			CreatedAt:   d.CreatedAt,
+			UpdatedAt:   d.UpdatedAt,
+		}
+	}
+	return results, nil
+}
+
+// serviceDoc is the BSON representation of a ServiceRecord.
+type serviceDoc struct {
+	Name        string    `bson:"_id"`
+	Mode        int       `bson:"mode"`
+	Port        int       `bson:"port"`
+	MinScale    int       `bson:"min_scale"`
+	MaxScale    int       `bson:"max_scale"`
+	IngressHost string    `bson:"ingress_host"`
+	TimeoutNs   int64     `bson:"timeout_ns"`
+	Status      string    `bson:"status"`
+	ClusterIP   string    `bson:"cluster_ip"`
+	CreatedAt   time.Time `bson:"created_at"`
+	UpdatedAt   time.Time `bson:"updated_at"`
+}
+
+func (s *MongoStore) CreateService(ctx context.Context, record ServiceRecord) error {
+	now := time.Now()
+	doc := serviceDoc{
+		Name:        record.Name,
+		Mode:        int(record.Mode),
+		Port:        record.Port,
+		MinScale:    record.MinScale,
+		MaxScale:    record.MaxScale,
+		IngressHost: record.IngressHost,
+		TimeoutNs:   record.Timeout.Nanoseconds(),
+		Status:      string(ServiceStatusPending),
+		ClusterIP:   record.ClusterIP,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	_, err := s.db.Collection(collServices).InsertOne(ctx, doc)
+	if err != nil {
+		if mongo.IsDuplicateKeyError(err) {
+			return ErrDuplicateServiceName
+		}
+		return fmt.Errorf("store: create service: %w", err)
+	}
+	return nil
+}
+
+func (s *MongoStore) GetService(ctx context.Context, name string) (ServiceRecord, error) {
+	var doc serviceDoc
+	err := s.db.Collection(collServices).FindOne(ctx,
+		bson.D{{Key: "_id", Value: name}},
+	).Decode(&doc)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return ServiceRecord{}, ErrServiceNotFound
+		}
+		return ServiceRecord{}, fmt.Errorf("store: get service: %w", err)
+	}
+	return docToServiceRecord(doc), nil
+}
+
+func (s *MongoStore) ListServices(ctx context.Context) ([]ServiceRecord, error) {
+	cursor, err := s.db.Collection(collServices).Find(ctx, bson.D{})
+	if err != nil {
+		return nil, fmt.Errorf("store: list services: %w", err)
+	}
+	defer cursor.Close(ctx)
+
+	var docs []serviceDoc
+	if err := cursor.All(ctx, &docs); err != nil {
+		return nil, fmt.Errorf("store: decode services: %w", err)
+	}
+
+	results := make([]ServiceRecord, len(docs))
+	for i, d := range docs {
+		results[i] = docToServiceRecord(d)
+	}
+	return results, nil
+}
+
+func (s *MongoStore) UpdateServiceStatus(ctx context.Context, name string, status ServiceStatus, clusterIP string) error {
+	fields := bson.D{
+		{Key: "status", Value: string(status)},
+		{Key: "updated_at", Value: time.Now()},
+	}
+	if clusterIP != "" {
+		fields = append(fields, bson.E{Key: "cluster_ip", Value: clusterIP})
+	}
+	result, err := s.db.Collection(collServices).UpdateOne(ctx,
+		bson.D{{Key: "_id", Value: name}},
+		bson.D{{Key: "$set", Value: fields}},
+	)
+	if err != nil {
+		return fmt.Errorf("store: update service status: %w", err)
+	}
+	if result.MatchedCount == 0 {
+		return ErrServiceNotFound
+	}
+	return nil
+}
+
+func (s *MongoStore) DeleteService(ctx context.Context, name string) error {
+	result, err := s.db.Collection(collServices).DeleteOne(ctx,
+		bson.D{{Key: "_id", Value: name}},
+	)
+	if err != nil {
+		return fmt.Errorf("store: delete service: %w", err)
+	}
+	if result.DeletedCount == 0 {
+		return ErrServiceNotFound
+	}
+	return nil
+}
+
+func docToServiceRecord(d serviceDoc) ServiceRecord {
+	return ServiceRecord{
+		Name:        d.Name,
+		Mode:        kflow.ServiceMode(d.Mode),
+		Port:        d.Port,
+		MinScale:    d.MinScale,
+		MaxScale:    d.MaxScale,
+		IngressHost: d.IngressHost,
+		Timeout:     time.Duration(d.TimeoutNs),
+		Status:      ServiceStatus(d.Status),
+		ClusterIP:   d.ClusterIP,
+		CreatedAt:   d.CreatedAt,
+		UpdatedAt:   d.UpdatedAt,
+	}
 }
 
 // DropDatabase drops the database. Used only in tests.
