@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"sync"
 	"sync/atomic"
 
 	"github.com/pastorenue/kflow/internal/controller"
@@ -40,6 +41,9 @@ type Server struct {
 	// APIKey is the shared bearer token. Empty = auth disabled (dev mode).
 	APIKey string
 
+	graphs   map[string]workflowGraph
+	graphsMu sync.RWMutex
+
 	ready   atomic.Bool
 	mux     *http.ServeMux
 	handler http.Handler
@@ -63,6 +67,7 @@ func NewServer(
 		Workflows:  workflows,
 		Trigger:    trigger,
 		APIKey:     apiKey,
+		graphs:     make(map[string]workflowGraph),
 		mux:        http.NewServeMux(),
 	}
 	s.registerRoutes()
@@ -85,6 +90,8 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /readyz", s.handleReadyz)
 
 	s.mux.HandleFunc("GET /api/v1/workflows", s.handleListWorkflows)
+	s.mux.HandleFunc("POST /api/v1/workflows", s.handleRegisterWorkflow)
+	s.mux.HandleFunc("GET /api/v1/workflows/{name}", s.handleGetWorkflow)
 	s.mux.HandleFunc("POST /api/v1/workflows/{name}/run", s.handleRunWorkflow)
 
 	s.mux.HandleFunc("GET /api/v1/executions", s.handleListExecutions)
@@ -154,7 +161,7 @@ func (s *Server) handleRunWorkflow(w http.ResponseWriter, r *http.Request) {
 		go s.Trigger(execID, name, input)
 	}
 
-	writeJSON(w, http.StatusCreated, map[string]string{"execution_id": execID})
+	writeJSON(w, http.StatusAccepted, map[string]string{"execution_id": execID})
 }
 
 func (s *Server) handleListExecutions(w http.ResponseWriter, r *http.Request) {
@@ -206,7 +213,10 @@ func (s *Server) workflowRegistered(name string) bool {
 			return true
 		}
 	}
-	return false
+	s.graphsMu.RLock()
+	_, ok := s.graphs[name]
+	s.graphsMu.RUnlock()
+	return ok
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

@@ -202,6 +202,28 @@ func TestMongoEnsureIndexes_Idempotent(t *testing.T) {
 	}
 }
 
+func TestMongoStore_LargeOutput_NoObjectStore(t *testing.T) {
+	ms := newMongoStore(t)
+	ctx := context.Background()
+
+	ms.CreateExecution(ctx, store.ExecutionRecord{ID: "exec-large", Workflow: "wf"})
+	sr := store.StateRecord{ExecutionID: "exec-large", StateName: "s", Attempt: 1}
+	ms.WriteAheadState(ctx, sr)
+	ms.MarkRunning(ctx, "exec-large", "s")
+
+	// Build an output exceeding 1 MB.
+	large := make([]byte, 1<<20+100)
+	for i := range large {
+		large[i] = 'x'
+	}
+	bigOutput := kflow.Output{"data": string(large)}
+
+	err := ms.CompleteState(ctx, "exec-large", "s", bigOutput)
+	if err != store.ErrOutputTooLarge {
+		t.Fatalf("expected ErrOutputTooLarge, got %v", err)
+	}
+}
+
 // Ensure timestamps are populated.
 func TestMongoTimestamps(t *testing.T) {
 	ms := newMongoStore(t)

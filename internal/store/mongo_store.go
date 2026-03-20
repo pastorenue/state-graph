@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -47,8 +49,9 @@ type stateDoc struct {
 
 // MongoStore is the production implementation of Store backed by MongoDB.
 type MongoStore struct {
-	client *mongo.Client
-	db     *mongo.Database
+	client      *mongo.Client
+	db          *mongo.Database
+	ObjectStore *ObjectStore // nil = large output offload disabled
 }
 
 // NewMongoStore connects to MongoDB, ensures indexes, and returns a ready store.
@@ -220,9 +223,43 @@ func (s *MongoStore) MarkRunning(ctx context.Context, execID, stateName string) 
 }
 
 func (s *MongoStore) CompleteState(ctx context.Context, execID, stateName string, output kflow.Output) error {
+	outputBytes, err := json.Marshal(output)
+	if err != nil {
+		return fmt.Errorf("store: marshal output: %w", err)
+	}
+
+	var outputBSON bson.M
+	if len(outputBytes) > 1<<20 {
+		if s.ObjectStore == nil {
+			return ErrOutputTooLarge
+		}
+		// Find current attempt to build the object key.
+		var doc stateDoc
+		err := s.db.Collection(collStates).FindOne(ctx,
+			bson.D{
+				{Key: "execution_id", Value: execID},
+				{Key: "state_name", Value: stateName},
+			},
+			options.FindOne().SetSort(bson.D{{Key: "attempt", Value: -1}}),
+		).Decode(&doc)
+		if err != nil {
+			if err == mongo.ErrNoDocuments {
+				return ErrStateNotFound
+			}
+			return fmt.Errorf("store: find state for large output: %w", err)
+		}
+		key := fmt.Sprintf("executions/%s/states/%s/attempt-%d.json", execID, stateName, doc.Attempt)
+		if err := s.ObjectStore.Put(ctx, key, outputBytes); err != nil {
+			return fmt.Errorf("store: upload large output: %w", err)
+		}
+		outputBSON = bson.M{"_ref": "s3://" + s.ObjectStore.bucketName + "/" + key}
+	} else {
+		outputBSON = inputToM(output)
+	}
+
 	return s.updateLatestState(ctx, execID, stateName, bson.D{
 		{Key: "status", Value: string(StatusCompleted)},
-		{Key: "output", Value: inputToM(output)},
+		{Key: "output", Value: outputBSON},
 		{Key: "updated_at", Value: time.Now()},
 	})
 }
@@ -253,8 +290,37 @@ func (s *MongoStore) GetStateOutput(ctx context.Context, execID, stateName strin
 	if doc.Status != string(StatusCompleted) {
 		return nil, ErrStateNotCompleted
 	}
-	return mToInput(doc.Output), nil
+
+	output := mToInput(doc.Output)
+	if len(output) == 1 {
+		if ref, ok := output["_ref"].(string); ok && ref != "" {
+			// Dereference from object store.
+			key := extractS3Key(ref)
+			data, err := s.ObjectStore.Get(ctx, key)
+			if err != nil {
+				return nil, fmt.Errorf("store: dereference large output: %w", err)
+			}
+			var result kflow.Output
+			if err := json.Unmarshal(data, &result); err != nil {
+				return nil, fmt.Errorf("store: unmarshal large output: %w", err)
+			}
+			return result, nil
+		}
+	}
+	return output, nil
 }
+
+// extractS3Key strips the "s3://<bucket>/" prefix from a ref URI.
+func extractS3Key(ref string) string {
+	// ref format: s3://<bucket>/<key>
+	withoutScheme := strings.TrimPrefix(ref, "s3://")
+	idx := strings.Index(withoutScheme, "/")
+	if idx < 0 {
+		return withoutScheme
+	}
+	return withoutScheme[idx+1:]
+}
+
 
 // updateLatestState applies a $set update to the most recent attempt of a state.
 func (s *MongoStore) updateLatestState(ctx context.Context, execID, stateName string, fields bson.D) error {

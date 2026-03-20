@@ -22,6 +22,7 @@ var (
 	ErrStateNotFound        = errors.New("store: state record not found")
 	ErrStateNotCompleted    = errors.New("store: state is not in Completed status")
 	ErrStateAlreadyTerminal = errors.New("store: state record already in terminal status")
+	ErrOutputTooLarge       = errors.New("store: output exceeds 1 MB and no object store is configured")
 )
 
 type ExecutionRecord struct {
