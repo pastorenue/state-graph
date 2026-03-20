@@ -1,4 +1,4 @@
-.PHONY: build test test-race vet lint clean up down ui-install ui-build ui-check ui-dev
+.PHONY: build test test-race vet lint clean up down ui-install ui-build ui-check ui-dev helm-lint helm-template docker-build
 
 GO_IMAGE  := golang:1.22
 NODE_IMAGE := node:20-alpine
@@ -55,6 +55,21 @@ ui-check: ui-install
 ## ui-dev: run the SvelteKit dev server (host machine, not Docker)
 ui-dev:
 	cd ui && npm run dev
+
+HELM_IMAGE := alpine/helm:3.14.0
+DOCKER_RUN_HELM := docker run --rm -v "$(CURDIR)/deployments/k8s":/chart $(HELM_IMAGE)
+
+## helm-lint: lint the Helm chart
+helm-lint:
+	$(DOCKER_RUN_HELM) lint /chart
+
+## helm-template: render the Helm chart and print manifests
+helm-template:
+	$(DOCKER_RUN_HELM) template kflow /chart --set mongodb.uri=mongodb://localhost:27017
+
+## docker-build: build the Control Plane container image
+docker-build:
+	docker build -t kflow:dev .
 
 ## clean: remove build artefacts
 clean:

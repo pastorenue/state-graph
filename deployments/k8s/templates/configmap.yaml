@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kflow.fullname" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kflow.labels" . | nindent 4 }}
+data:
+  KFLOW_NAMESPACE: {{ .Values.workloadNamespace | quote }}
+  KFLOW_MONGO_DB: {{ .Values.mongodb.database | quote }}
+  KFLOW_GRPC_PORT: {{ .Values.service.port | quote }}

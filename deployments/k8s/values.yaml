@@ -1,0 +1,74 @@
+# Control Plane image
+image:
+  repository: ghcr.io/your-org/kflow
+  tag: ""          # defaults to Chart.appVersion if empty
+  pullPolicy: IfNotPresent
+
+# Number of Control Plane replicas (1 for v1; HA not yet supported)
+replicaCount: 1
+
+# Kubernetes namespace where kflow creates Jobs and Deployments for user workloads.
+# This is also the namespace where the Control Plane itself runs.
+workloadNamespace: kflow
+
+# Control Plane HTTP server port
+service:
+  port: 8080
+  type: ClusterIP
+
+# External Ingress for the Control Plane API + Dashboard
+ingress:
+  enabled: false
+  className: nginx
+  host: ""           # e.g. kflow.example.com
+  tls: []            # standard Helm ingress TLS block
+
+# MongoDB connection (external; chart does not deploy MongoDB)
+mongodb:
+  uri: ""            # required; set via --set mongodb.uri=... or existingSecret
+  database: kflow
+  existingSecret: "" # if set, use this Secret for KFLOW_MONGO_URI instead of creating one
+
+# ClickHouse connection (external; chart does not deploy ClickHouse)
+clickhouse:
+  dsn: ""            # optional; if empty, telemetry is disabled
+  existingSecret: "" # if set, use this Secret for KFLOW_CLICKHOUSE_DSN
+
+# Dashboard deployment method
+# "embedded" — served by the Control Plane binary (go:embed ui/build)
+# "sidecar"  — separate nginx container in the Control Plane Pod
+dashboard:
+  mode: embedded     # "embedded" | "sidecar"
+  sidecar:
+    image:
+      repository: nginx
+      tag: alpine
+      pullPolicy: IfNotPresent
+    port: 80
+
+# Resource requests and limits for the Control Plane container
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# Pod-level settings
+podAnnotations: {}
+podSecurityContext: {}
+securityContext: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# ServiceAccount
+serviceAccount:
+  create: true
+  name: ""           # defaults to chart fullname if empty
+  annotations: {}
+
+# RBAC
+rbac:
+  clusterScoped: true

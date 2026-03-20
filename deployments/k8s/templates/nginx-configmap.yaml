@@ -1,0 +1,31 @@
+{{- if eq .Values.dashboard.mode "sidecar" -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kflow.fullname" . }}-nginx
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kflow.labels" . | nindent 4 }}
+data:
+  default.conf: |
+    server {
+        listen {{ .Values.dashboard.sidecar.port }};
+        server_name _;
+
+        root /usr/share/nginx/html;
+        index index.html;
+
+        location /api/ {
+            proxy_pass http://127.0.0.1:{{ .Values.service.port }};
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+        }
+
+        location / {
+            try_files $uri $uri/ /index.html;
+        }
+    }
+{{- end }}
