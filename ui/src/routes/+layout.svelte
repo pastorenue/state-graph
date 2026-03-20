@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount, type Snippet } from 'svelte';
+  import { goto } from '$app/navigation';
+  import { page } from '$app/stores';
   import { createWSClient } from '$lib/ws';
   import { wsEvents, wsConnected } from '$lib/wsStore';
 
@@ -7,10 +9,47 @@
 
   let client: ReturnType<typeof createWSClient>;
 
+  function getToken(): string | null {
+    if (typeof localStorage === 'undefined') return null;
+    return localStorage.getItem('kflow_token');
+  }
+
+  function isTokenExpired(token: string): boolean {
+    try {
+      const parts = token.split('.');
+      if (parts.length !== 2) return true;
+      const payload = JSON.parse(atob(parts[0].replace(/-/g, '+').replace(/_/g, '/')));
+      return new Date(payload.expires_at) <= new Date();
+    } catch {
+      return true;
+    }
+  }
+
+  function logout() {
+    localStorage.removeItem('kflow_token');
+    goto('/login');
+  }
+
   onMount(() => {
-    client = createWSClient('/api/v1/ws', (ev) => {
-      wsEvents.set(ev);
-    });
+    const currentPath = $page.url.pathname;
+    if (currentPath !== '/login') {
+      const token = getToken();
+      if (!token) {
+        goto('/login');
+        return;
+      }
+      if (isTokenExpired(token)) {
+        localStorage.removeItem('kflow_token');
+        goto('/login');
+        return;
+      }
+    }
+
+    client = createWSClient(
+      '/api/v1/ws',
+      (ev) => { wsEvents.set(ev); },
+      getToken,
+    );
     client.connect();
 
     const interval = setInterval(() => {
@@ -34,6 +73,7 @@
   {:else}
     <span class="ws-badge disconnected">WS disconnected</span>
   {/if}
+  <button class="logout-btn" onclick={logout}>Logout</button>
 </nav>
 
 <main>
@@ -65,6 +105,22 @@
     font-size: 0.75rem;
     padding: 0.2rem 0.6rem;
     border-radius: 9999px;
+  }
+
+  .logout-btn {
+    margin-left: 0.5rem;
+    background: transparent;
+    border: 1px solid #45475a;
+    color: #a6adc8;
+    font-size: 0.75rem;
+    padding: 0.2rem 0.6rem;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+
+  .logout-btn:hover {
+    background: #313244;
+    color: #cdd6f4;
   }
 
   .ws-badge.connected {

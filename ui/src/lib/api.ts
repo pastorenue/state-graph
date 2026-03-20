@@ -1,12 +1,48 @@
 const BASE = import.meta.env.VITE_API_BASE ?? '';
 
-async function request<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}${path}`);
+function getToken(): string | null {
+  if (typeof localStorage === 'undefined') return null;
+  return localStorage.getItem('kflow_token');
+}
+
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const token = getToken();
+  const headers: Record<string, string> = { ...(init.headers as Record<string, string>) };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const res = await fetch(`${BASE}${path}`, { ...init, headers });
+
+  if (res.status === 401) {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('kflow_token');
+    }
+    if (typeof window !== 'undefined') {
+      window.location.href = '/login';
+    }
+    throw { error: 'unauthorized', code: 'auth_required' };
+  }
+
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText, code: String(res.status) }));
     throw body as { error: string; code: string };
   }
   return res.json() as Promise<T>;
+}
+
+export async function login(apiKey: string): Promise<string> {
+  const res = await fetch(`${BASE}/api/v1/auth/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ api_key: apiKey }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: res.statusText, code: String(res.status) }));
+    throw body as { error: string; code: string };
+  }
+  const data = (await res.json()) as { token: string };
+  return data.token;
 }
 
 function qs(params: Record<string, string | number | undefined>): string {

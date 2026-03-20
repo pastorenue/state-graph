@@ -37,8 +37,12 @@ type Server struct {
 	// May be nil (execution record is created but not driven).
 	Trigger ExecutionTrigger
 
-	ready atomic.Bool
-	mux   *http.ServeMux
+	// APIKey is the shared bearer token. Empty = auth disabled (dev mode).
+	APIKey string
+
+	ready   atomic.Bool
+	mux     *http.ServeMux
+	handler http.Handler
 }
 
 // NewServer creates a Server and registers all routes.
@@ -49,6 +53,7 @@ func NewServer(
 	disp *controller.ServiceDispatcher,
 	workflows []string,
 	trigger ExecutionTrigger,
+	apiKey string,
 ) *Server {
 	s := &Server{
 		Store:      st,
@@ -57,9 +62,11 @@ func NewServer(
 		Dispatcher: disp,
 		Workflows:  workflows,
 		Trigger:    trigger,
+		APIKey:     apiKey,
 		mux:        http.NewServeMux(),
 	}
 	s.registerRoutes()
+	s.handler = BearerAuthMiddleware(s.APIKey)(s.mux)
 	return s
 }
 
@@ -67,7 +74,7 @@ func NewServer(
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("X-Frame-Options", "DENY")
-	s.mux.ServeHTTP(w, r)
+	s.handler.ServeHTTP(w, r)
 }
 
 // MarkReady signals that the server is ready to serve traffic.
@@ -90,6 +97,8 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("DELETE /api/v1/services/{name}", s.handleDeleteService)
 
 	s.mux.HandleFunc("GET /api/v1/ws", s.Hub.ServeWS)
+
+	s.mux.HandleFunc("POST /api/v1/auth/token", s.handleAuthToken)
 
 	// Telemetry endpoints (no-op when s.Telemetry == nil)
 	s.mux.HandleFunc("GET /api/v1/executions/{id}/events", s.handleListEvents)

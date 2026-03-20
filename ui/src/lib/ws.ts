@@ -22,6 +22,7 @@ export type EventHandler = (event: WSEvent) => void;
 export function createWSClient(
   path: string,
   onEvent: EventHandler,
+  getToken: () => string | null = () => null,
   reconnectDelayMs = 2000,
 ): { connect: () => void; disconnect: () => void; isConnected: () => boolean } {
   let ws: WebSocket | null = null;
@@ -35,7 +36,9 @@ export function createWSClient(
 
   function open() {
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const url = `${protocol}//${location.host}${path}`;
+    const token = getToken();
+    const suffix = token ? `?token=${encodeURIComponent(token)}` : '';
+    const url = `${protocol}//${location.host}${path}${suffix}`;
     ws = new WebSocket(url);
 
     ws.onmessage = (ev) => {

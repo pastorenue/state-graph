@@ -129,7 +129,7 @@ func runServerMode() {
 		Metrics:           metricsWriter,
 	}
 
-	srv := api.NewServer(ms, k8s, hub, disp, nil, nil)
+	srv := api.NewServer(ms, k8s, hub, disp, nil, nil, cfg.APIKey)
 	srv.Telemetry = chClient
 	srv.MarkReady()
 
