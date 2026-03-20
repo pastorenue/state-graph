@@ -50,6 +50,7 @@ declare module '$env/static/private' {
 	export const npm_config_userconfig: string;
 	export const npm_config_local_prefix: string;
 	export const COLOR: string;
+	export const VITE_API_TARGET: string;
 	export const npm_config_prefix: string;
 	export const npm_config_npm_version: string;
 	export const npm_config_cache: string;
@@ -68,6 +69,7 @@ declare module '$env/static/private' {
 	export const npm_command: string;
 	export const INIT_CWD: string;
 	export const EDITOR: string;
+	export const NODE_ENV: string;
 }
 
 /**
@@ -166,6 +168,7 @@ declare module '$env/dynamic/private' {
 		npm_config_userconfig: string;
 		npm_config_local_prefix: string;
 		COLOR: string;
+		VITE_API_TARGET: string;
 		npm_config_prefix: string;
 		npm_config_npm_version: string;
 		npm_config_cache: string;
@@ -184,6 +187,7 @@ declare module '$env/dynamic/private' {
 		npm_command: string;
 		INIT_CWD: string;
 		EDITOR: string;
+		NODE_ENV: string;
 		[key: `PUBLIC_${string}`]: undefined;
 		[key: `${string}`]: string | undefined;
 	}

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount, type Snippet } from 'svelte';
+  import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { createWSClient } from '$lib/ws';
   import { wsEvents, wsConnected } from '$lib/wsStore';
@@ -87,19 +88,6 @@
   }
 </script>
 
-<<<<<<< HEAD
-<nav>
-  <a href="/">Executions</a>
-  <a href="/services">Services</a>
-  <a href="/logs">Logs</a>
-  {#if $wsConnected}
-    <span class="ws-badge connected">WS live</span>
-  {:else}
-    <span class="ws-badge disconnected">WS disconnected</span>
-  {/if}
-  <button class="logout-btn" onclick={logout}>Logout</button>
-</nav>
-=======
 <div class="flex h-screen overflow-hidden bg-base">
   <!-- Sidebar -->
   <aside class="w-56 shrink-0 flex flex-col bg-surface border-r border-border">
@@ -118,7 +106,6 @@
     <div class="px-5 mb-2">
       <span class="text-[10px] font-semibold text-subtle uppercase tracking-widest">Navigation</span>
     </div>
->>>>>>> 14fc29f (feat(ui): Tailwind CSS v4 + sidebar redesign)
 
     <!-- Nav links -->
     <nav class="flex-1 px-3 flex flex-col gap-0.5">
@@ -141,8 +128,8 @@
     <!-- Divider -->
     <div class="mx-5 border-t border-border mb-4"></div>
 
-    <!-- WS status -->
-    <div class="px-5 pb-5">
+    <!-- WS status + logout -->
+    <div class="px-5 pb-5 flex flex-col gap-3">
       {#if $wsConnected}
         <div class="flex items-center gap-2 text-xs text-emerald-700">
           <span class="relative flex h-2 w-2">
@@ -157,164 +144,17 @@
           Disconnected
         </div>
       {/if}
+      <button
+        onclick={logout}
+        class="w-full text-left text-xs text-muted hover:text-text transition-colors"
+      >
+        Logout
+      </button>
     </div>
   </aside>
 
-<<<<<<< HEAD
-  nav a {
-    color: #cdd6f4;
-    text-decoration: none;
-    font-weight: 500;
-  }
-
-  nav a:hover {
-    color: #89b4fa;
-  }
-
-  .ws-badge {
-    margin-left: auto;
-    font-size: 0.75rem;
-    padding: 0.2rem 0.6rem;
-    border-radius: 9999px;
-  }
-
-  .logout-btn {
-    margin-left: 0.5rem;
-    background: transparent;
-    border: 1px solid #45475a;
-    color: #a6adc8;
-    font-size: 0.75rem;
-    padding: 0.2rem 0.6rem;
-    border-radius: 4px;
-    cursor: pointer;
-  }
-
-  .logout-btn:hover {
-    background: #313244;
-    color: #cdd6f4;
-  }
-
-  .ws-badge.connected {
-    background: #a6e3a1;
-    color: #1e1e2e;
-  }
-
-  .ws-badge.disconnected {
-    background: #f38ba8;
-    color: #1e1e2e;
-  }
-
-  main {
-    padding: 1.5rem;
-    font-family: system-ui, sans-serif;
-    background: #181825;
-    min-height: calc(100vh - 49px);
-    color: #cdd6f4;
-  }
-
-  :global(body) {
-    margin: 0;
-    background: #181825;
-  }
-
-  :global(table) {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.9rem;
-  }
-
-  :global(th) {
-    text-align: left;
-    padding: 0.5rem 0.75rem;
-    border-bottom: 1px solid #313244;
-    color: #a6adc8;
-    font-weight: 500;
-  }
-
-  :global(td) {
-    padding: 0.5rem 0.75rem;
-    border-bottom: 1px solid #1e1e2e;
-  }
-
-  :global(tr:hover td) {
-    background: #24273a;
-    cursor: pointer;
-  }
-
-  :global(.badge) {
-    display: inline-block;
-    padding: 0.15rem 0.5rem;
-    border-radius: 4px;
-    font-size: 0.75rem;
-    font-weight: 600;
-  }
-
-  :global(.badge-pending)   { background: #45475a; color: #cdd6f4; }
-  :global(.badge-running)   { background: #89b4fa; color: #1e1e2e; }
-  :global(.badge-completed) { background: #a6e3a1; color: #1e1e2e; }
-  :global(.badge-failed)    { background: #f38ba8; color: #1e1e2e; }
-  :global(.badge-stopped)   { background: #45475a; color: #cdd6f4; }
-  :global(.badge-info)      { background: #89b4fa; color: #1e1e2e; }
-  :global(.badge-warn)      { background: #f9e2af; color: #1e1e2e; }
-  :global(.badge-error)     { background: #f38ba8; color: #1e1e2e; }
-  :global(.badge-debug)     { background: #45475a; color: #cdd6f4; }
-
-  :global(button) {
-    padding: 0.4rem 0.9rem;
-    border: 1px solid #313244;
-    border-radius: 4px;
-    background: #313244;
-    color: #cdd6f4;
-    cursor: pointer;
-    font-size: 0.875rem;
-  }
-
-  :global(button:hover) { background: #45475a; }
-
-  :global(input, select) {
-    padding: 0.35rem 0.6rem;
-    border: 1px solid #313244;
-    border-radius: 4px;
-    background: #1e1e2e;
-    color: #cdd6f4;
-    font-size: 0.875rem;
-  }
-
-  :global(.filters) {
-    display: flex;
-    gap: 0.75rem;
-    margin-bottom: 1rem;
-    flex-wrap: wrap;
-    align-items: center;
-  }
-
-  :global(.empty) {
-    text-align: center;
-    color: #6c7086;
-    padding: 2rem;
-  }
-
-  :global(pre) {
-    background: #1e1e2e;
-    border: 1px solid #313244;
-    border-radius: 4px;
-    padding: 0.75rem;
-    overflow-x: auto;
-    font-size: 0.8rem;
-    color: #cdd6f4;
-    margin: 0;
-  }
-
-  :global(h1) {
-    margin-top: 0;
-    font-size: 1.25rem;
-    color: #cdd6f4;
-  }
-</style>
-=======
   <!-- Main content -->
   <main class="flex-1 overflow-y-auto">
     {@render children()}
   </main>
 </div>
->>>>>>> 14fc29f (feat(ui): Tailwind CSS v4 + sidebar redesign)
