@@ -1,0 +1,59 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300..700;1,14..32,300..700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+
+  /* background layers */
+  --color-base:    #0d0d14;
+  --color-surface: #13131f;
+  --color-raised:  #1a1a2b;
+  --color-border:  #1e1e34;
+
+  /* text */
+  --color-text:    #e2e2f0;
+  --color-muted:   #8080a8;
+  --color-subtle:  #4a4a72;
+
+  /* accent */
+  --color-accent:     #6366f1;
+  --color-accent-dim: #4f46e5;
+
+  /* status */
+  --color-pending:   #3d3d5a;
+  --color-running:   #1d4ed8;
+  --color-completed: #15803d;
+  --color-failed:    #b91c1c;
+  --color-stopped:   #3d3d5a;
+}
+
+@layer base {
+  html, body { @apply bg-base text-text font-sans antialiased; }
+  * { box-sizing: border-box; }
+
+  table  { @apply w-full text-sm border-collapse; }
+  th     { @apply text-left px-4 py-3 text-muted font-medium border-b border-border; }
+  td     { @apply px-4 py-3 border-b border-border/50; }
+  tr:hover td { @apply bg-raised cursor-pointer; }
+  h1     { @apply text-xl font-semibold text-text mt-0 mb-6; }
+  input, select { @apply bg-surface border border-border rounded-md px-3 py-2 text-sm text-text outline-none focus:ring-1 focus:ring-accent; }
+  button { @apply bg-raised border border-border rounded-md px-4 py-2 text-sm text-text cursor-pointer hover:bg-border transition-colors; }
+  pre    { @apply bg-surface border border-border rounded-md p-3 text-xs overflow-x-auto text-text; }
+  code   { @apply font-mono text-accent; }
+}
+
+@layer components {
+  .badge { @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold; }
+  .badge-pending   { @apply bg-[#2a2a42] text-[#8080a8]; }
+  .badge-running   { @apply bg-blue-900/60 text-blue-300; }
+  .badge-completed { @apply bg-green-900/60 text-green-300; }
+  .badge-failed    { @apply bg-red-900/60 text-red-300; }
+  .badge-stopped   { @apply bg-[#2a2a42] text-[#8080a8]; }
+  .badge-info      { @apply bg-blue-900/60 text-blue-300; }
+  .badge-warn      { @apply bg-amber-900/60 text-amber-300; }
+  .badge-error     { @apply bg-red-900/60 text-red-300; }
+  .badge-debug     { @apply bg-[#2a2a42] text-[#8080a8]; }
+
+  .filters { @apply flex flex-wrap gap-3 mb-4 items-center; }
+  .empty   { @apply text-center text-muted py-12; }
+}

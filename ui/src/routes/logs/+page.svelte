@@ -72,6 +72,7 @@
   }
 </script>
 
+<div class="p-8 max-w-6xl">
 <h1>Log Explorer</h1>
 
 <form class="filters" on:submit|preventDefault={() => search()}>
@@ -87,18 +88,18 @@
   </select>
   <input bind:value={filterSince} placeholder="Since (ISO 8601)" />
   <input bind:value={filterUntil} placeholder="Until (ISO 8601)" />
-  <input bind:value={filterQ} placeholder="Search text" style="min-width:180px" />
+  <input bind:value={filterQ} placeholder="Search text" class="min-w-[180px]" />
   <button type="submit">Search</button>
 </form>
 
 {#if loading}
   <p class="empty">Loading…</p>
 {:else if error}
-  <p class="empty" style="color:#f38ba8">{error}</p>
+  <p class="empty text-red-400">{error}</p>
 {:else if logs.length === 0 && total === 0}
   <p class="empty">No logs found for the selected filters.</p>
 {:else}
-  <div class="pagination-info">
+  <div class="text-xs text-muted mb-2">
     Showing {offset + 1}–{Math.min(offset + limit, total)} of {total} results
   </div>
 
@@ -115,43 +116,25 @@
     <tbody>
       {#each logs as log (log.log_id)}
         <tr>
-          <td style="font-size:0.8rem;white-space:nowrap">{new Date(log.occurred_at).toLocaleString()}</td>
+          <td class="text-xs whitespace-nowrap">{new Date(log.occurred_at).toLocaleString()}</td>
           <td><span class={levelBadge(log.level)}>{log.level}</span></td>
-          <td style="font-size:0.8rem">
+          <td class="text-xs">
             {#if log.execution_id}
               <code>{log.execution_id.slice(0, 8)}…</code>
             {:else if log.service_name}
               {log.service_name}
             {/if}
           </td>
-          <td style="font-size:0.8rem">{log.state_name || '—'}</td>
-          <td style="font-size:0.85rem">{log.message}</td>
+          <td class="text-xs">{log.state_name || '—'}</td>
+          <td class="text-sm">{log.message}</td>
         </tr>
       {/each}
     </tbody>
   </table>
 
-  <div class="pagination">
-    <button on:click={prevPage} disabled={offset === 0}>← Prev</button>
-    <button on:click={nextPage} disabled={offset + limit >= total}>Next →</button>
+  <div class="flex gap-2 mt-4">
+    <button on:click={prevPage} disabled={offset === 0} class="disabled:opacity-40 disabled:cursor-not-allowed">← Prev</button>
+    <button on:click={nextPage} disabled={offset + limit >= total} class="disabled:opacity-40 disabled:cursor-not-allowed">Next →</button>
   </div>
 {/if}
-
-<style>
-  .pagination-info {
-    font-size: 0.8rem;
-    color: #6c7086;
-    margin-bottom: 0.5rem;
-  }
-
-  .pagination {
-    display: flex;
-    gap: 0.5rem;
-    margin-top: 1rem;
-  }
-
-  button:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
-</style>
+</div>

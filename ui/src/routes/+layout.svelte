@@ -1,9 +1,9 @@
 <script lang="ts">
   import { onDestroy, onMount, type Snippet } from 'svelte';
-  import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { createWSClient } from '$lib/ws';
   import { wsEvents, wsConnected } from '$lib/wsStore';
+  import '../app.css';
 
   let { children }: { children: Snippet } = $props();
 
@@ -62,8 +62,32 @@
   onDestroy(() => {
     client?.disconnect();
   });
+
+  const navLinks = [
+    {
+      href: '/',
+      label: 'Executions',
+      icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>`,
+    },
+    {
+      href: '/services',
+      label: 'Services',
+      icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><hexagon x="3" y="3" width="18" height="18" rx="2"/><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>`,
+    },
+    {
+      href: '/logs',
+      label: 'Logs',
+      icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="15" y2="18"/></svg>`,
+    },
+  ];
+
+  function isActive(href: string, pathname: string): boolean {
+    if (href === '/') return pathname === '/';
+    return pathname.startsWith(href);
+  }
 </script>
 
+<<<<<<< HEAD
 <nav>
   <a href="/">Executions</a>
   <a href="/services">Services</a>
@@ -75,21 +99,51 @@
   {/if}
   <button class="logout-btn" onclick={logout}>Logout</button>
 </nav>
+=======
+<div class="flex h-screen overflow-hidden bg-base">
+  <!-- Sidebar -->
+  <aside class="w-60 shrink-0 flex flex-col bg-surface border-r border-border">
+    <!-- Brand -->
+    <div class="py-6 px-5 flex items-center gap-2">
+      <span class="w-2 h-2 rounded-full bg-accent"></span>
+      <span class="text-text font-semibold tracking-tight">kflow</span>
+    </div>
+>>>>>>> 14fc29f (feat(ui): Tailwind CSS v4 + sidebar redesign)
 
-<main>
-  {@render children()}
-</main>
+    <!-- Nav links -->
+    <nav class="flex-1 px-3 flex flex-col gap-1">
+      {#each navLinks as link}
+        {@const active = isActive(link.href, $page.url.pathname)}
+        <a
+          href={link.href}
+          class="flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors
+            {active
+              ? 'bg-accent/10 text-accent border-l-2 border-accent pl-[10px]'
+              : 'text-muted hover:text-text hover:bg-raised border-l-2 border-transparent pl-[10px]'}"
+        >
+          <span class="shrink-0">{@html link.icon}</span>
+          {link.label}
+        </a>
+      {/each}
+    </nav>
 
-<style>
-  nav {
-    display: flex;
-    gap: 1.5rem;
-    align-items: center;
-    padding: 0.75rem 1.5rem;
-    background: #1e1e2e;
-    border-bottom: 1px solid #313244;
-  }
+    <!-- WS status pill -->
+    <div class="px-5 py-4">
+      {#if $wsConnected}
+        <div class="flex items-center gap-2 text-xs text-green-400">
+          <span class="w-2 h-2 rounded-full bg-green-400"></span>
+          WS live
+        </div>
+      {:else}
+        <div class="flex items-center gap-2 text-xs text-red-400">
+          <span class="w-2 h-2 rounded-full bg-red-400"></span>
+          WS disconnected
+        </div>
+      {/if}
+    </div>
+  </aside>
 
+<<<<<<< HEAD
   nav a {
     color: #cdd6f4;
     text-decoration: none;
@@ -240,3 +294,10 @@
     color: #cdd6f4;
   }
 </style>
+=======
+  <!-- Main content -->
+  <main class="flex-1 overflow-y-auto">
+    {@render children()}
+  </main>
+</div>
+>>>>>>> 14fc29f (feat(ui): Tailwind CSS v4 + sidebar redesign)

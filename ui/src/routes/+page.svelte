@@ -60,6 +60,7 @@
   }
 </script>
 
+<div class="p-8 max-w-6xl">
 <h1>Executions</h1>
 
 <div class="filters">
@@ -77,7 +78,7 @@
 {#if loading}
   <p class="empty">Loading…</p>
 {:else if error}
-  <p class="empty" style="color:#f38ba8">{error}</p>
+  <p class="empty text-red-400">{error}</p>
 {:else if executions.length === 0}
   <p class="empty">No executions found.</p>
 {:else}
@@ -100,9 +101,10 @@
           <td><span class="badge badge-{exec.status.toLowerCase()}">{exec.status}</span></td>
           <td>{new Date(exec.created_at).toLocaleString()}</td>
           <td>{duration(exec)}</td>
-          <td style="font-size:0.8rem;color:#6c7086">{inputSummary(exec.input)}</td>
+          <td class="text-xs text-muted">{inputSummary(exec.input)}</td>
         </tr>
       {/each}
     </tbody>
   </table>
 {/if}
+</div>

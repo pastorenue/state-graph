@@ -43,6 +43,7 @@
   }
 </script>
 
+<div class="p-8 max-w-6xl">
 <h1>Services</h1>
 
 <div class="filters">
@@ -52,7 +53,7 @@
 {#if loading}
   <p class="empty">Loading…</p>
 {:else if error}
-  <p class="empty" style="color:#f38ba8">{error}</p>
+  <p class="empty text-red-400">{error}</p>
 {:else if services.length === 0}
   <p class="empty">No services registered.</p>
 {:else}
@@ -74,21 +75,21 @@
           <td>{svc.mode}</td>
           <td><span class="badge badge-{svc.status.toLowerCase()}">{svc.status}</span></td>
           <td>{svc.mode === 'Deployment' ? `${svc.min_scale}–${svc.max_scale}` : '—'}</td>
-          <td style="font-size:0.8rem">{svc.ingress_host || '—'}</td>
-          <td style="font-size:0.8rem">{new Date(svc.updated_at).toLocaleString()}</td>
+          <td class="text-xs">{svc.ingress_host || '—'}</td>
+          <td class="text-xs">{new Date(svc.updated_at).toLocaleString()}</td>
         </tr>
         {#if expandedService === svc.name}
           <tr>
             <td colspan="6">
-              <div class="detail">
-                <div class="detail-row">
-                  <span>Timeout: <strong>{svc.timeout_seconds}s</strong></span>
-                  <span>Port: <strong>{svc.port}</strong></span>
-                  <span>Cluster IP: <strong>{svc.cluster_ip || '—'}</strong></span>
-                  <span>Scale: <strong>{svc.min_scale} – {svc.max_scale}</strong></span>
+              <div class="p-3 bg-surface rounded-md my-1">
+                <div class="flex gap-6 text-sm text-muted flex-wrap mb-1">
+                  <span>Timeout: <strong class="text-text">{svc.timeout_seconds}s</strong></span>
+                  <span>Port: <strong class="text-text">{svc.port}</strong></span>
+                  <span>Cluster IP: <strong class="text-text">{svc.cluster_ip || '—'}</strong></span>
+                  <span>Scale: <strong class="text-text">{svc.min_scale} – {svc.max_scale}</strong></span>
                 </div>
-                <div class="detail-row">
-                  <a href="/logs?service_name={encodeURIComponent(svc.name)}" on:click|stopPropagation={() => goto(`/logs?service_name=${encodeURIComponent(svc.name)}`)}>
+                <div class="flex gap-6 text-sm text-muted flex-wrap">
+                  <a class="text-accent hover:text-accent-dim text-sm" href="/logs?service_name={encodeURIComponent(svc.name)}" on:click|stopPropagation={() => goto(`/logs?service_name=${encodeURIComponent(svc.name)}`)}>
                     View logs →
                   </a>
                 </div>
@@ -100,26 +101,4 @@
     </tbody>
   </table>
 {/if}
-
-<style>
-  .detail {
-    padding: 0.75rem;
-    background: #1e1e2e;
-    border-radius: 4px;
-    margin: 0.25rem 0;
-  }
-
-  .detail-row {
-    display: flex;
-    gap: 1.5rem;
-    font-size: 0.875rem;
-    color: #a6adc8;
-    flex-wrap: wrap;
-    margin-bottom: 0.4rem;
-  }
-
-  .detail-row a {
-    color: #89b4fa;
-    font-size: 0.875rem;
-  }
-</style>
+</div>
