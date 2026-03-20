@@ -20,8 +20,9 @@ type K8sExecutor struct {
 	Image             string
 	RunnerEndpoint    string // KFLOW_GRPC_ENDPOINT injected into Job containers
 	RunnerTokenSecret []byte // HMAC key for state token signing
-	Telemetry         *telemetry.EventWriter  // nil = no telemetry
-	LogWriter         *telemetry.LogWriter    // nil = no log capture
+	Telemetry         *telemetry.EventWriter                              // nil = no telemetry
+	LogWriter         *telemetry.LogWriter                                // nil = no log capture
+	Notify            func(execID, stateName, fromStatus, toStatus, errMsg string) // nil = no WS broadcast
 }
 
 // Run drives a full workflow execution using K8s Jobs.
@@ -44,6 +45,9 @@ func (e *K8sExecutor) buildHandler(execID string) func(context.Context, string, 
 		}
 
 		e.Telemetry.RecordStateTransition(ctx, execID, stateName, string(store.StatusPending), string(store.StatusRunning), "")
+		if e.Notify != nil {
+			e.Notify(execID, stateName, string(store.StatusPending), string(store.StatusRunning), "")
+		}
 
 		_, err = e.K8s.CreateJob(ctx, k8s.JobSpec{
 			Name:  name,
@@ -76,6 +80,9 @@ func (e *K8sExecutor) buildHandler(execID string) func(context.Context, string, 
 			log.Printf("k8s_executor: [%s] job %q failed: %s", execID, name, result.Message)
 			e.deleteJobBestEffort(ctx, name)
 			e.Telemetry.RecordStateTransition(ctx, execID, stateName, string(store.StatusRunning), string(store.StatusFailed), result.Message)
+			if e.Notify != nil {
+				e.Notify(execID, stateName, string(store.StatusRunning), string(store.StatusFailed), result.Message)
+			}
 			return nil, fmt.Errorf("k8s_executor: job for %q failed: %s", stateName, result.Message)
 		}
 		log.Printf("k8s_executor: [%s] job %q succeeded", execID, name)
@@ -88,6 +95,9 @@ func (e *K8sExecutor) buildHandler(execID string) func(context.Context, string, 
 
 		e.deleteJobBestEffort(ctx, name)
 		e.Telemetry.RecordStateTransition(ctx, execID, stateName, string(store.StatusRunning), string(store.StatusCompleted), "")
+		if e.Notify != nil {
+			e.Notify(execID, stateName, string(store.StatusRunning), string(store.StatusCompleted), "")
+		}
 		return output, nil
 	}
 }

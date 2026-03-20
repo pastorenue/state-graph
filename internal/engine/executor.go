@@ -6,12 +6,15 @@ import (
 	"time"
 
 	"github.com/pastorenue/kflow/internal/store"
+	"github.com/pastorenue/kflow/internal/telemetry"
 	"github.com/pastorenue/kflow/pkg/kflow"
 )
 
 type Executor struct {
-	Store   store.Store
-	Handler func(ctx context.Context, stateName string, input kflow.Input) (kflow.Output, error)
+	Store     store.Store
+	Handler   func(ctx context.Context, stateName string, input kflow.Input) (kflow.Output, error)
+	Telemetry *telemetry.EventWriter
+	Notify    func(execID, stateName, fromStatus, toStatus, errMsg string)
 }
 
 func (e *Executor) Run(ctx context.Context, execID string, g *Graph, input kflow.Input) error {
@@ -80,6 +83,7 @@ func (e *Executor) executeState(ctx context.Context, execID string, g *Graph, no
 	if err := e.Store.MarkRunning(ctx, execID, node.Name); err != nil {
 		return nil, err
 	}
+	e.recordTransition(ctx, execID, node.Name, string(store.StatusPending), string(store.StatusRunning), "")
 
 	var output kflow.Output
 	var handlerErr error
@@ -95,6 +99,7 @@ func (e *Executor) executeState(ctx context.Context, execID string, g *Graph, no
 		if err := e.Store.CompleteState(ctx, execID, node.Name, output); err != nil {
 			return nil, err
 		}
+		e.recordTransition(ctx, execID, node.Name, string(store.StatusRunning), string(store.StatusCompleted), "")
 		log.Printf("executor: [%s] state %q completed", execID, node.Name)
 		return output, nil
 	}
@@ -104,6 +109,7 @@ func (e *Executor) executeState(ctx context.Context, execID string, g *Graph, no
 	if err := e.Store.FailState(ctx, execID, node.Name, handlerErr.Error()); err != nil {
 		return nil, err
 	}
+	e.recordTransition(ctx, execID, node.Name, string(store.StatusRunning), string(store.StatusFailed), handlerErr.Error())
 
 	if node.Catch != "" {
 		log.Printf("executor: [%s] state %q → catch %q", execID, node.Name, node.Catch)
@@ -138,6 +144,7 @@ func (e *Executor) applyRetry(ctx context.Context, execID string, node *Node, in
 			if err := e.Store.FailState(ctx, execID, node.Name, lastErr.Error()); err != nil {
 				return nil, err
 			}
+			e.recordTransition(ctx, execID, node.Name, string(store.StatusRunning), string(store.StatusFailed), lastErr.Error())
 			sr := store.StateRecord{
 				ExecutionID: execID,
 				StateName:   node.Name,
@@ -150,6 +157,7 @@ func (e *Executor) applyRetry(ctx context.Context, execID string, node *Node, in
 			if err := e.Store.MarkRunning(ctx, execID, node.Name); err != nil {
 				return nil, err
 			}
+			e.recordTransition(ctx, execID, node.Name, string(store.StatusPending), string(store.StatusRunning), "")
 			if backoff > 0 {
 				time.Sleep(backoff)
 			}
@@ -163,6 +171,13 @@ func (e *Executor) applyRetry(ctx context.Context, execID string, node *Node, in
 	}
 
 	return nil, lastErr
+}
+
+func (e *Executor) recordTransition(ctx context.Context, execID, state, from, to, errMsg string) {
+	e.Telemetry.RecordStateTransition(ctx, execID, state, from, to, errMsg)
+	if e.Notify != nil {
+		e.Notify(execID, state, from, to, errMsg)
+	}
 }
 
 func mergeErrorKey(input kflow.Input, err error) kflow.Input {

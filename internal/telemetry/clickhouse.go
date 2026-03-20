@@ -51,7 +51,7 @@ func (c *Client) InitSchema(ctx context.Context) error {
 			occurred_at  DateTime64(3) DEFAULT now64()
 		) ENGINE = MergeTree()
 		ORDER BY (execution_id, occurred_at)
-		TTL occurred_at + INTERVAL 90 DAY
+		TTL toDateTime(occurred_at) + INTERVAL 90 DAY
 		SETTINGS index_granularity = 8192`,
 
 		`CREATE TABLE IF NOT EXISTS service_metrics (
@@ -64,7 +64,7 @@ func (c *Client) InitSchema(ctx context.Context) error {
 			occurred_at   DateTime64(3) DEFAULT now64()
 		) ENGINE = MergeTree()
 		ORDER BY (service_name, occurred_at)
-		TTL occurred_at + INTERVAL 90 DAY
+		TTL toDateTime(occurred_at) + INTERVAL 90 DAY
 		SETTINGS index_granularity = 8192`,
 
 		`CREATE TABLE IF NOT EXISTS logs (
@@ -77,7 +77,7 @@ func (c *Client) InitSchema(ctx context.Context) error {
 			occurred_at  DateTime64(3) DEFAULT now64()
 		) ENGINE = MergeTree()
 		ORDER BY (execution_id, occurred_at)
-		TTL occurred_at + INTERVAL 30 DAY
+		TTL toDateTime(occurred_at) + INTERVAL 30 DAY
 		SETTINGS index_granularity = 8192`,
 	}
 

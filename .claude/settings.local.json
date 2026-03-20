@@ -3,7 +3,8 @@
     "allow": [
       "Bash(ls:*)",
       "Bash(docker run:*)",
-      "Bash(tee:*)"
+      "Bash(tee:*)",
+      "Bash(docker compose:*)"
     ]
   }
 }

@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/pastorenue/kflow/internal/api"
 	"github.com/pastorenue/kflow/internal/config"
@@ -229,6 +230,20 @@ func runServerMode() {
 
 	runnerSrv := runner.NewRunnerServiceServer(ms, cfg.RunnerTokenSecret)
 
+	notify := func(execID, stateName, from, to, errMsg string) {
+		hub.Broadcast(api.WSEvent{
+			Type:      "state_transition",
+			Timestamp: time.Now(),
+			Payload: api.StateTransitionPayload{
+				ExecutionID: execID,
+				StateName:   stateName,
+				FromStatus:  from,
+				ToStatus:    to,
+				Error:       errMsg,
+			},
+		})
+	}
+
 	trigger := func(execID string, graph *kflowv1.WorkflowGraph, input kflow.Input) {
 		g, err := engine.BuildFromProto(graph)
 		if err != nil {
@@ -246,6 +261,7 @@ func runServerMode() {
 				RunnerEndpoint:    cfg.RunnerGRPCEndpoint,
 				RunnerTokenSecret: cfg.RunnerTokenSecret,
 				Telemetry:         eventWriter,
+				Notify:            notify,
 			}
 			runErr = ke.Run(context.Background(), execID, g, input)
 		} else {
@@ -254,6 +270,8 @@ func runServerMode() {
 				Handler: func(_ context.Context, _ string, in kflow.Input) (kflow.Output, error) {
 					return kflow.Output(in), nil
 				},
+				Telemetry: eventWriter,
+				Notify:    notify,
 			}
 			runErr = ex.Run(context.Background(), execID, g, input)
 		}

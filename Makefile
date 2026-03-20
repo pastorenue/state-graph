@@ -1,4 +1,4 @@
-.PHONY: build test test-race vet lint clean up down ui-install ui-build ui-check ui-dev helm-lint helm-template docker-build proto-gen deps build-cli install-cli demo examples py-examples
+.PHONY: build test test-race vet lint clean up down ui-install ui-build ui-check ui-dev helm-lint helm-template docker-build proto-gen deps build-cli install-cli demo examples py-examples example-cp
 
 GO_IMAGE       := golang:1.22
 NODE_IMAGE     := node:22-alpine
@@ -120,6 +120,14 @@ py-examples:
 ## demo: run sample workflow executions (requires: make up)
 demo:
 	@bash scripts/demo.sh
+
+## example-cp: submit a workflow to the local orchestrator via the control plane API
+example-cp:
+	docker run --rm \
+	  -v "$(CURDIR)":/workspace -w /workspace \
+	  --network state-graph_default \
+	  -e KFLOW_API_ENDPOINT=http://orchestrator:8080 \
+	  $(GO_IMAGE) go run ./examples/05-control-plane
 
 ## clean: remove build artefacts
 clean:

@@ -23,9 +23,10 @@ type Config struct {
 
 	ServiceGRPCPort string // KFLOW_SERVICE_GRPC_PORT, default "9091"
 
-	APIKey        string
-	ClickHouseDSN string
-	Image         string // KFLOW_IMAGE: container image for K8s Job execution (optional)
+	APIKey         string
+	ClickHouseDSN  string
+	ObjectStoreURI string // KFLOW_OBJECT_STORE_URI: S3-compatible URI; empty = large outputs return ErrOutputTooLarge
+	Image          string // KFLOW_IMAGE: container image for K8s Job execution (optional)
 }
 
 // LoadConfig reads configuration from environment variables.
@@ -95,6 +96,7 @@ func LoadConfig() (*Config, error) {
 		ServiceGRPCPort:    serviceGRPCPort,
 		APIKey:             apiKey,
 		ClickHouseDSN:      os.Getenv("KFLOW_CLICKHOUSE_DSN"),
+		ObjectStoreURI:     os.Getenv("KFLOW_OBJECT_STORE_URI"),
 		Image:              os.Getenv("KFLOW_IMAGE"),
 	}, nil
 }
