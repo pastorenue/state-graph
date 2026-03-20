@@ -5,6 +5,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	kflowv1 "github.com/pastorenue/kflow/internal/gen/kflow/v1"
@@ -54,6 +55,12 @@ func (d *ServiceDispatcher) Dispatch(
 		return nil, fmt.Errorf("dispatcher: service %q is not Running (status=%s)", serviceName, rec.Status)
 	}
 
+	modeStr := "deployment"
+	if rec.Mode == kflow.Lambda {
+		modeStr = "lambda"
+	}
+	log.Printf("dispatcher: invoking service %q (mode=%s)", serviceName, modeStr)
+
 	start := time.Now()
 	var output kflow.Output
 	var dispErr error
@@ -68,6 +75,12 @@ func (d *ServiceDispatcher) Dispatch(
 	}
 
 	durationMs := uint64(time.Since(start).Milliseconds())
+	if dispErr != nil {
+		log.Printf("dispatcher: service %q failed: %v", serviceName, dispErr)
+	} else {
+		log.Printf("dispatcher: service %q completed (%dms)", serviceName, durationMs)
+	}
+
 	if d.Metrics != nil {
 		var statusCode uint16 = 200
 		errMsg := ""

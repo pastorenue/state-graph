@@ -66,7 +66,7 @@ func (c *Client) CreateIngress(ctx context.Context, spec IngressSpec) error {
 	}
 
 	if _, err := c.clientset.NetworkingV1().Ingresses(ns).Create(ctx, ingress, metav1.CreateOptions{}); err != nil {
-		return fmt.Errorf("k8s: create ingress %q: %w", spec.Name, err)
+		return clusterError(fmt.Sprintf("create ingress %q", spec.Name), err)
 	}
 	return nil
 }
@@ -75,7 +75,7 @@ func (c *Client) CreateIngress(ctx context.Context, spec IngressSpec) error {
 func (c *Client) DeleteIngress(ctx context.Context, name string) error {
 	err := c.clientset.NetworkingV1().Ingresses(c.namespace).Delete(ctx, name, metav1.DeleteOptions{})
 	if err != nil {
-		return fmt.Errorf("k8s: delete ingress %q: %w", name, err)
+		return clusterError(fmt.Sprintf("delete ingress %q", name), err)
 	}
 	return nil
 }

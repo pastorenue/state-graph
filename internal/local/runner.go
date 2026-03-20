@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"log"
 
 	"github.com/pastorenue/kflow/internal/engine"
 	"github.com/pastorenue/kflow/internal/store"
@@ -24,6 +25,8 @@ func RunLocal(wf *kflow.Workflow, input kflow.Input) error {
 	if err != nil {
 		return fmt.Errorf("kflow.RunLocal: uuid: %w", err)
 	}
+
+	log.Printf("runner: starting local execution %q (execID=%s)", wf.Name(), execID)
 
 	ms := store.NewMemoryStore()
 	ctx := context.Background()
@@ -52,7 +55,12 @@ func RunLocal(wf *kflow.Workflow, input kflow.Input) error {
 				if err != nil {
 					return nil, err
 				}
-				return kflow.Output{"__choice__": choice}, nil
+				out := make(kflow.Output, len(inp)+1)
+				for k, v := range inp {
+					out[k] = v
+				}
+				out["__choice__"] = choice
+				return out, nil
 			}
 			return td.Fn()(ctx, inp)
 		},
@@ -63,6 +71,9 @@ func RunLocal(wf *kflow.Workflow, input kflow.Input) error {
 	finalStatus := store.StatusCompleted
 	if runErr != nil {
 		finalStatus = store.StatusFailed
+		log.Printf("runner: execution %q failed: %v", wf.Name(), runErr)
+	} else {
+		log.Printf("runner: execution %q completed", wf.Name())
 	}
 	_ = ms.UpdateExecution(ctx, execID, finalStatus)
 

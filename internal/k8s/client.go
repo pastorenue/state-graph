@@ -41,6 +41,10 @@ func NewClient(namespace string) (*Client, error) {
 		return nil, fmt.Errorf("k8s: cannot create clientset: %w", err)
 	}
 
+	if _, err = cs.Discovery().ServerVersion(); err != nil {
+		return nil, fmt.Errorf("k8s: cannot reach API server at %s: %w", cfg.Host, err)
+	}
+
 	return &Client{clientset: cs, namespace: namespace}, nil
 }
 

@@ -58,7 +58,9 @@ func (e *K8sExecutor) buildHandler(execID string) func(context.Context, string, 
 		if err != nil {
 			return nil, fmt.Errorf("k8s_executor: create job for %q: %w", stateName, err)
 		}
+		log.Printf("k8s_executor: [%s] job %q created for state %q", execID, name, stateName)
 
+		log.Printf("k8s_executor: [%s] waiting for job %q", execID, name)
 		result, err := e.K8s.WaitForJob(ctx, name)
 		if err != nil {
 			e.deleteJobBestEffort(ctx, name)
@@ -71,10 +73,12 @@ func (e *K8sExecutor) buildHandler(execID string) func(context.Context, string, 
 		}
 
 		if result.Failed {
+			log.Printf("k8s_executor: [%s] job %q failed: %s", execID, name, result.Message)
 			e.deleteJobBestEffort(ctx, name)
 			e.Telemetry.RecordStateTransition(ctx, execID, stateName, string(store.StatusRunning), string(store.StatusFailed), result.Message)
 			return nil, fmt.Errorf("k8s_executor: job for %q failed: %s", stateName, result.Message)
 		}
+		log.Printf("k8s_executor: [%s] job %q succeeded", execID, name)
 
 		output, err := e.Store.GetStateOutput(ctx, execID, stateName)
 		if err != nil {

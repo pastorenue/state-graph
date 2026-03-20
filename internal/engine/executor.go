@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"log"
 	"time"
 
 	"github.com/pastorenue/kflow/internal/store"
@@ -14,6 +15,7 @@ type Executor struct {
 }
 
 func (e *Executor) Run(ctx context.Context, execID string, g *Graph, input kflow.Input) error {
+	log.Printf("executor: execution %q started", execID)
 	node := g.EntryNode()
 	current := input
 
@@ -26,6 +28,7 @@ func (e *Executor) Run(ctx context.Context, execID string, g *Graph, input kflow
 
 		output, err := e.executeState(ctx, execID, g, node, cloneInput(current))
 		if err != nil {
+			log.Printf("executor: execution %q failed: %v", execID, err)
 			return err
 		}
 
@@ -39,15 +42,19 @@ func (e *Executor) Run(ctx context.Context, execID string, g *Graph, input kflow
 		var nextErr error
 		node, nextErr = g.Next(node, choiceKey)
 		if nextErr != nil {
+			log.Printf("executor: execution %q failed: %v", execID, nextErr)
 			return nextErr
 		}
 		current = output
 	}
 
+	log.Printf("executor: execution %q completed", execID)
 	return nil
 }
 
 func (e *Executor) executeState(ctx context.Context, execID string, g *Graph, node *Node, input kflow.Input) (kflow.Output, error) {
+	log.Printf("executor: [%s] state %q starting", execID, node.Name)
+
 	var resumeAt *time.Time
 	if node.TaskDef.IsWait() {
 		t := time.Now().Add(node.TaskDef.WaitDur())
@@ -88,15 +95,18 @@ func (e *Executor) executeState(ctx context.Context, execID string, g *Graph, no
 		if err := e.Store.CompleteState(ctx, execID, node.Name, output); err != nil {
 			return nil, err
 		}
+		log.Printf("executor: [%s] state %q completed", execID, node.Name)
 		return output, nil
 	}
 
 	// handler failed — mark final attempt as failed
+	log.Printf("executor: [%s] state %q failed: %v", execID, node.Name, handlerErr)
 	if err := e.Store.FailState(ctx, execID, node.Name, handlerErr.Error()); err != nil {
 		return nil, err
 	}
 
 	if node.Catch != "" {
+		log.Printf("executor: [%s] state %q → catch %q", execID, node.Name, node.Catch)
 		catchInput := mergeErrorKey(input, handlerErr)
 		catchNode := g.Node(node.Catch)
 		if catchNode == nil {
@@ -123,6 +133,7 @@ func (e *Executor) applyRetry(ctx context.Context, execID string, node *Node, in
 	var lastErr error
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		if attempt > 1 {
+			log.Printf("executor: [%s] state %q retry %d/%d", execID, node.Name, attempt, maxAttempts)
 			// mark failed before retry write-ahead
 			if err := e.Store.FailState(ctx, execID, node.Name, lastErr.Error()); err != nil {
 				return nil, err

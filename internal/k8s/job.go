@@ -153,7 +153,7 @@ func (c *Client) CreateJob(ctx context.Context, spec JobSpec) (string, error) {
 	}
 
 	if _, err := c.clientset.BatchV1().Jobs(ns).Create(ctx, job, metav1.CreateOptions{}); err != nil {
-		return "", fmt.Errorf("k8s: create job %q: %w", name, err)
+		return "", clusterError(fmt.Sprintf("create job %q", name), err)
 	}
 	return name, nil
 }
@@ -165,7 +165,7 @@ func (c *Client) DeleteJob(ctx context.Context, name string) error {
 		PropagationPolicy: &prop,
 	})
 	if err != nil {
-		return fmt.Errorf("k8s: delete job %q: %w", name, err)
+		return clusterError(fmt.Sprintf("delete job %q", name), err)
 	}
 	return nil
 }
@@ -178,7 +178,7 @@ func (c *Client) WaitForJob(ctx context.Context, name string) (JobResult, error)
 		FieldSelector: "metadata.name=" + name,
 	})
 	if err != nil {
-		return JobResult{}, fmt.Errorf("k8s: watch job %q: %w", name, err)
+		return JobResult{}, clusterError(fmt.Sprintf("watch job %q", name), err)
 	}
 	defer watcher.Stop()
 

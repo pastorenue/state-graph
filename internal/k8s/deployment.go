@@ -93,7 +93,7 @@ func (c *Client) CreateDeployment(ctx context.Context, spec DeploymentSpec) erro
 	}
 
 	if _, err := c.clientset.AppsV1().Deployments(ns).Create(ctx, deploy, metav1.CreateOptions{}); err != nil {
-		return fmt.Errorf("k8s: create deployment %q: %w", spec.Name, err)
+		return clusterError(fmt.Sprintf("create deployment %q", spec.Name), err)
 	}
 
 	svc := &corev1.Service{
@@ -118,7 +118,7 @@ func (c *Client) CreateDeployment(ctx context.Context, spec DeploymentSpec) erro
 	if _, err := c.clientset.CoreV1().Services(ns).Create(ctx, svc, metav1.CreateOptions{}); err != nil {
 		// Best-effort cleanup of orphaned Deployment.
 		_ = c.clientset.AppsV1().Deployments(ns).Delete(ctx, spec.Name, metav1.DeleteOptions{})
-		return fmt.Errorf("k8s: create service %q (deployment cleaned up): %w", spec.Name, err)
+		return clusterError(fmt.Sprintf("create service %q (deployment cleaned up)", spec.Name), err)
 	}
 
 	return nil
@@ -128,11 +128,11 @@ func (c *Client) CreateDeployment(ctx context.Context, spec DeploymentSpec) erro
 func (c *Client) UpdateDeploymentReplicas(ctx context.Context, name string, replicas int32) error {
 	deploy, err := c.clientset.AppsV1().Deployments(c.namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("k8s: get deployment %q for scale: %w", name, err)
+		return clusterError(fmt.Sprintf("get deployment %q for scale", name), err)
 	}
 	deploy.Spec.Replicas = &replicas
 	if _, err := c.clientset.AppsV1().Deployments(c.namespace).Update(ctx, deploy, metav1.UpdateOptions{}); err != nil {
-		return fmt.Errorf("k8s: update deployment replicas %q: %w", name, err)
+		return clusterError(fmt.Sprintf("update deployment replicas %q", name), err)
 	}
 	return nil
 }
@@ -146,10 +146,10 @@ func (c *Client) DeleteDeployment(ctx context.Context, name string) error {
 	svcErr := c.clientset.CoreV1().Services(c.namespace).Delete(ctx, name, deleteOpts)
 
 	if deployErr != nil {
-		return fmt.Errorf("k8s: delete deployment %q: %w", name, deployErr)
+		return clusterError(fmt.Sprintf("delete deployment %q", name), deployErr)
 	}
 	if svcErr != nil {
-		return fmt.Errorf("k8s: delete service %q: %w", name, svcErr)
+		return clusterError(fmt.Sprintf("delete service %q", name), svcErr)
 	}
 	return nil
 }
@@ -158,7 +158,7 @@ func (c *Client) DeleteDeployment(ctx context.Context, name string) error {
 func (c *Client) GetDeploymentClusterIP(ctx context.Context, name string) (string, error) {
 	svc, err := c.clientset.CoreV1().Services(c.namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
-		return "", fmt.Errorf("k8s: get service ClusterIP for %q: %w", name, err)
+		return "", clusterError(fmt.Sprintf("get service ClusterIP for %q", name), err)
 	}
 	if svc.Spec.ClusterIP == "" || svc.Spec.ClusterIP == "None" {
 		return "", fmt.Errorf("k8s: service %q has no ClusterIP assigned yet", name)
@@ -173,7 +173,7 @@ func (c *Client) WatchDeploymentRollout(ctx context.Context, name string, minRea
 		FieldSelector: "metadata.name=" + name,
 	})
 	if err != nil {
-		return fmt.Errorf("k8s: watch deployment %q: %w", name, err)
+		return clusterError(fmt.Sprintf("watch deployment %q", name), err)
 	}
 	defer watcher.Stop()
 
