@@ -42,6 +42,11 @@ type Config struct {
 	// If empty, telemetry is disabled (no-op mode).
 	// Source: KFLOW_CLICKHOUSE_DSN
 	ClickHouseDSN string
+
+	// ObjectStoreURI is the S3-compatible URI for large output offload.
+	// If empty, outputs > 1 MB return ErrOutputTooLarge.
+	// Source: KFLOW_OBJECT_STORE_URI
+	ObjectStoreURI string
 }
 
 // LoadConfig reads configuration from environment variables.
@@ -82,6 +87,7 @@ func LoadConfig() (*Config, error) {
 	}
 
 	clickhouseDSN := os.Getenv("KFLOW_CLICKHOUSE_DSN")
+	objectStoreURI := os.Getenv("KFLOW_OBJECT_STORE_URI")
 
 	return &Config{
 		MongoURI:           mongoURI,
@@ -91,6 +97,7 @@ func LoadConfig() (*Config, error) {
 		RunnerTokenSecret:  tokenSecret,
 		APIKey:             apiKey,
 		ClickHouseDSN:      clickhouseDSN,
+		ObjectStoreURI:     objectStoreURI,
 	}, nil
 }
 

@@ -90,6 +90,17 @@ func runServerMode() {
 	}
 	log.Println("store: connected to MongoDB")
 
+	if cfg.ObjectStoreURI != "" {
+		objStore, err := store.NewObjectStore(ctx, cfg.ObjectStoreURI)
+		if err != nil {
+			log.Fatalf("object store: %v", err)
+		}
+		ms.ObjectStore = objStore
+		log.Printf("object store: connected (uri=%s)", cfg.ObjectStoreURI)
+	} else {
+		log.Println("object store: KFLOW_OBJECT_STORE_URI not set — large output offload disabled")
+	}
+
 	k8s, err := k8sclient.NewClient(cfg.Namespace)
 	if err != nil {
 		log.Fatalf("k8s: %v", err)

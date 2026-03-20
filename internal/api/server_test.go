@@ -69,7 +69,7 @@ func TestRunWorkflow_CreatesExecution(t *testing.T) {
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusCreated {
+	if rec.Code != http.StatusAccepted {
 		t.Fatalf("run workflow: got %d body=%s", rec.Code, rec.Body.String())
 	}
 	var resp map[string]string
