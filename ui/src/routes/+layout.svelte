@@ -4,6 +4,7 @@
   import { page } from '$app/stores';
   import { createWSClient } from '$lib/ws';
   import { wsEvents, wsConnected } from '$lib/wsStore';
+  import { getAuthStatus } from '$lib/api';
   import '../app.css';
 
   let { children }: { children: Snippet } = $props();
@@ -31,18 +32,21 @@
     goto('/login');
   }
 
-  onMount(() => {
+  onMount(async () => {
     const currentPath = $page.url.pathname;
     if (currentPath !== '/login') {
-      const token = getToken();
-      if (!token) {
-        goto('/login');
-        return;
-      }
-      if (isTokenExpired(token)) {
-        localStorage.removeItem('kflow_token');
-        goto('/login');
-        return;
+      const { auth_enabled } = await getAuthStatus();
+      if (auth_enabled) {
+        const token = getToken();
+        if (!token) {
+          goto('/login');
+          return;
+        }
+        if (isTokenExpired(token)) {
+          localStorage.removeItem('kflow_token');
+          goto('/login');
+          return;
+        }
       }
     }
 

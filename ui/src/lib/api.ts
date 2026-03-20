@@ -31,6 +31,12 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+export async function getAuthStatus(): Promise<{ auth_enabled: boolean }> {
+  const res = await fetch(`${BASE}/api/v1/auth/status`);
+  if (!res.ok) return { auth_enabled: false };
+  return res.json() as Promise<{ auth_enabled: boolean }>;
+}
+
 export async function login(apiKey: string): Promise<string> {
   const res = await fetch(`${BASE}/api/v1/auth/token`, {
     method: 'POST',

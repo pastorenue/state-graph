@@ -8,6 +8,10 @@ import (
 	"time"
 )
 
+func (s *Server) handleAuthStatus(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]bool{"auth_enabled": s.APIKey != ""})
+}
+
 func (s *Server) handleAuthToken(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 

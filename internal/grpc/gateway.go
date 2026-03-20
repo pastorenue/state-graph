@@ -73,6 +73,16 @@ func NewGatewayMux(
 		_, _ = w.Write([]byte("ok"))
 	})
 
+	// Auth status — always exempt, used by UI to detect dev mode.
+	mux.HandleFunc("GET /api/v1/auth/status", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if apiKey == "" {
+			_, _ = w.Write([]byte(`{"auth_enabled":false}`))
+		} else {
+			_, _ = w.Write([]byte(`{"auth_enabled":true}`))
+		}
+	})
+
 	// WebSocket endpoint.
 	mux.Handle("/api/v1/ws", authMiddleware(apiKey, http.HandlerFunc(hub.ServeWS)))
 

@@ -6,7 +6,8 @@
   let error = $state('');
   let loading = $state(false);
 
-  async function handleSubmit() {
+  async function handleSubmit(e: SubmitEvent) {
+    e.preventDefault();
     error = '';
     loading = true;
     try {
@@ -23,7 +24,7 @@
 </script>
 
 <div class="login-wrap">
-  <form class="login-card" onsubmit={handleSubmit}>
+  <form class="login-card" onsubmit={(e) => handleSubmit(e)}>
     <h1>kflow</h1>
     <p class="subtitle">Control Plane</p>
 

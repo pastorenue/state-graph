@@ -13,8 +13,9 @@ import (
 
 // exemptPaths are always allowed without a token.
 var exemptPaths = map[string]bool{
-	"/healthz": true,
-	"/readyz":  true,
+	"/healthz":              true,
+	"/readyz":               true,
+	"/api/v1/auth/status":   true,
 }
 
 // tokenPayload is the JSON body of a session token.

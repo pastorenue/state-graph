@@ -106,6 +106,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/v1/ws", s.Hub.ServeWS)
 
 	s.mux.HandleFunc("POST /api/v1/auth/token", s.handleAuthToken)
+	s.mux.HandleFunc("GET /api/v1/auth/status", s.handleAuthStatus)
 
 	// Telemetry endpoints (no-op when s.Telemetry == nil)
 	s.mux.HandleFunc("GET /api/v1/executions/{id}/events", s.handleListEvents)
