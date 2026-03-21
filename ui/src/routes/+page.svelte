@@ -5,11 +5,13 @@
   import { wsEvents } from '$lib/wsStore';
   import type { StateTransitionPayload } from '$lib/ws';
 
-  let executions: Execution[] = [];
-  let loading = true;
-  let error = '';
-  let filterWorkflow = '';
-  let filterStatus = '';
+  let executions: Execution[] = $state([]);
+  let loading = $state(true);
+  let error = $state('');
+  let filterWorkflow = $state('');
+  let filterStatus = $state('');
+  let mounted = $state(false);
+  let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
   async function load() {
     loading = true;
@@ -28,20 +30,35 @@
     }
   }
 
-  onMount(load);
+  onMount(() => { load().then(() => { mounted = true; }); });
 
-  $: if ($wsEvents?.type === 'state_transition') {
-    const p = $wsEvents.payload as StateTransitionPayload;
-    const idx = executions.findIndex((ex) => ex.id === p.execution_id);
-    if (idx >= 0) {
-      executions[idx] = {
-        ...executions[idx],
-        status: p.to_status as Execution['status'],
-        updated_at: $wsEvents.timestamp,
-      };
-      executions = [...executions];
+  $effect(() => {
+    const ev = $wsEvents;
+    if (ev?.type === 'state_transition') {
+      const p = ev.payload as StateTransitionPayload;
+      const idx = executions.findIndex((ex) => ex.id === p.execution_id);
+      if (idx >= 0) {
+        executions[idx] = {
+          ...executions[idx],
+          status: p.to_status as Execution['status'],
+          updated_at: ev.timestamp,
+        };
+      }
     }
-  }
+  });
+
+  $effect(() => {
+    const _ = filterStatus;
+    if (mounted) load();
+  });
+
+  $effect(() => {
+    const _ = filterWorkflow;
+    if (!mounted) return;
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(load, 400);
+    return () => clearTimeout(debounceTimer);
+  });
 
   function duration(exec: Execution): string {
     const ms = new Date(exec.updated_at).getTime() - new Date(exec.created_at).getTime();
@@ -72,7 +89,7 @@
     <option value="Completed">Completed</option>
     <option value="Failed">Failed</option>
   </select>
-  <button on:click={load}>Refresh</button>
+  <button onclick={load}>Refresh</button>
 </div>
 
 {#if loading}
@@ -95,7 +112,7 @@
     </thead>
     <tbody>
       {#each executions as exec (exec.id)}
-        <tr on:click={() => goto(`/executions/${exec.id}`)}>
+        <tr onclick={() => goto(`/executions/${exec.id}`)}>
           <td><code>{shortId(exec.id)}</code></td>
           <td>{exec.workflow}</td>
           <td><span class="badge badge-{exec.status.toLowerCase()}">{exec.status}</span></td>

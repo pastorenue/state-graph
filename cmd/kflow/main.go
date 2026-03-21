@@ -1,57 +1,33 @@
 // Package main is the kflow CLI client.
-// Usage: kflow <group> <command> [flags]
 package main
 
 import (
-	"flag"
 	"fmt"
 	"os"
+
+	"github.com/spf13/cobra"
 )
 
 var (
-	serverFlag = flag.String("server", "http://localhost:8080", "orchestrator base URL")
-	apiKeyFlag = flag.String("api-key", "", "bearer token for API auth")
+	serverFlag string
+	apiKeyFlag string
 )
 
-func main() {
-	flag.Usage = usage
-	flag.Parse()
-
-	args := flag.Args()
-	if len(args) < 2 {
-		usage()
-		os.Exit(1)
-	}
-
-	group, cmd := args[0], args[1]
-	rest := args[2:]
-
-	switch group {
-	case "workflow":
-		runWorkflowCmd(cmd, rest)
-	case "execution":
-		runExecutionCmd(cmd, rest)
-	default:
-		fmt.Fprintf(os.Stderr, "unknown group %q\n", group)
-		usage()
-		os.Exit(1)
-	}
+var rootCmd = &cobra.Command{
+	Use:   "kflow",
+	Short: "kflow — workflow engine CLI",
 }
 
-func usage() {
-	fmt.Fprintf(os.Stderr, `kflow — workflow engine CLI
+func init() {
+	rootCmd.PersistentFlags().StringVar(&serverFlag, "server", "http://localhost:8080", "orchestrator base URL")
+	rootCmd.PersistentFlags().StringVar(&apiKeyFlag, "api-key", "", "bearer token for API auth")
+	rootCmd.AddCommand(workflowCmd)
+	rootCmd.AddCommand(executionCmd)
+}
 
-Usage:
-  kflow [--server=URL] [--api-key=KEY] <group> <command> [flags]
-
-Groups and commands:
-  workflow register  --file=<graph.json>
-  workflow list
-  workflow run       --name=<name> [--input=<json>]
-  execution get      --id=<id>
-  execution list     [--workflow=<name>]
-
-Global flags:
-`)
-	flag.PrintDefaults()
+func main() {
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 }

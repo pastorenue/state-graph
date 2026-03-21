@@ -19,15 +19,15 @@ func doJSON(method, path string, body any) (map[string]any, error) {
 		bodyReader = bytes.NewReader(b)
 	}
 
-	req, err := http.NewRequest(method, *serverFlag+path, bodyReader)
+	req, err := http.NewRequest(method, serverFlag+path, bodyReader)
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if *apiKeyFlag != "" {
-		req.Header.Set("Authorization", "Bearer "+*apiKeyFlag)
+	if apiKeyFlag != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKeyFlag)
 	}
 
 	resp, err := http.DefaultClient.Do(req)
