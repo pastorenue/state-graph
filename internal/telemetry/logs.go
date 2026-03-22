@@ -56,8 +56,9 @@ func (w *LogWriter) Write(
 	if w == nil {
 		return
 	}
+	logID := uuid.New()
 	row := LogRow{
-		LogID:       uuid.New().String(),
+		LogID:       logID.String(),
 		ExecutionID: execID,
 		ServiceName: serviceName,
 		StateName:   stateName,
@@ -69,13 +70,14 @@ func (w *LogWriter) Write(
 		if w.ch != nil {
 			writeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
+			// Pass logID (uuid.UUID / [16]byte) not its string representation —
+			// clickhouse-go/v2 requires the native UUID type for UUID columns.
 			if err := w.ch.conn.Exec(writeCtx,
 				`INSERT INTO logs (log_id, execution_id, service_name, state_name, level, message, occurred_at)
 				 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-				row.LogID, row.ExecutionID, row.ServiceName, row.StateName, row.Level, row.Message, row.OccurredAt,
+				logID, row.ExecutionID, row.ServiceName, row.StateName, row.Level, row.Message, row.OccurredAt,
 			); err != nil {
 				log.Printf("telemetry WARN: write log execID=%s state=%s: %v", execID, stateName, err)
-				return
 			}
 		}
 		if onWrite != nil {
