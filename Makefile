@@ -28,7 +28,7 @@ lint: vet
 
 ## up: start infrastructure (mongo, clickhouse, orchestrator)
 up:
-	docker compose up -d
+	docker compose up -d --build
 
 ## down: stop all services
 down:
