@@ -101,9 +101,12 @@ build-ui: ui-install
 	rm -rf cmd/kflow/uiassets/build
 	cp -r ui/build cmd/kflow/uiassets/build
 
+TARGET_OS ?= linux
+TARGET_ARCH ?= amd64
+
 ## build-cli: build the kflow CLI binary (run make build-ui first for embedded dashboard)
-build-cli:
-	$(DOCKER_RUN) go build -o bin/kflow ./cmd/kflow
+build-cli: build-ui
+	$(DOCKER_RUN) env GOOS=$(TARGET_OS) GOARCH=$(TARGET_ARCH) go build -o bin/kflow ./cmd/kflow
 
 ## install-cli: install the kflow CLI to GOPATH/bin
 install-cli:
