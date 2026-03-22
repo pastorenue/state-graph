@@ -61,6 +61,20 @@ var uiCmd = &cobra.Command{
 				proxy.ServeHTTP(w, r)
 				return
 			}
+			// SPA fallback: if the path doesn't match a real asset, serve index.html
+			// so the client-side router handles it.
+			path := strings.TrimPrefix(r.URL.Path, "/")
+			if path == "" {
+				path = "index.html"
+			}
+			f, err := uiassets.FS.Open(path)
+			if err != nil {
+				r2 := r.Clone(r.Context())
+				r2.URL.Path = "/"
+				staticFiles.ServeHTTP(w, r2)
+				return
+			}
+			f.Close()
 			staticFiles.ServeHTTP(w, r)
 		})
 
