@@ -117,7 +117,13 @@
         {#each executions as exec (exec.id)}
           <tr onclick={() => goto(`/executions/${exec.id}`)}>
             <td><code>{shortId(exec.id)}</code></td>
-            <td>{exec.workflow}</td>
+            <td>
+              <a
+                href="/workflows/{encodeURIComponent(exec.workflow)}"
+                class="text-accent hover:underline"
+                onclick={(e) => e.stopPropagation()}
+              >{exec.workflow}</a>
+            </td>
             <td><span class="badge badge-{exec.status.toLowerCase()}">{exec.status}</span></td>
             <td>{new Date(exec.created_at).toLocaleString()}</td>
             <td>{duration(exec)}</td>
