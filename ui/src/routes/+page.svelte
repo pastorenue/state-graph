@@ -96,8 +96,6 @@
   <p class="empty">Loading…</p>
 {:else if error}
   <p class="empty text-red-600">{error}</p>
-{:else if executions.length === 0}
-  <p class="empty">No executions found.</p>
 {:else}
   <table>
     <thead>
@@ -111,16 +109,22 @@
       </tr>
     </thead>
     <tbody>
-      {#each executions as exec (exec.id)}
-        <tr onclick={() => goto(`/executions/${exec.id}`)}>
-          <td><code>{shortId(exec.id)}</code></td>
-          <td>{exec.workflow}</td>
-          <td><span class="badge badge-{exec.status.toLowerCase()}">{exec.status}</span></td>
-          <td>{new Date(exec.created_at).toLocaleString()}</td>
-          <td>{duration(exec)}</td>
-          <td class="text-xs text-muted">{inputSummary(exec.input)}</td>
+      {#if executions.length === 0}
+        <tr class="hover:bg-transparent cursor-default">
+          <td colspan="6" class="empty border-none">No executions found.</td>
         </tr>
-      {/each}
+      {:else}
+        {#each executions as exec (exec.id)}
+          <tr onclick={() => goto(`/executions/${exec.id}`)}>
+            <td><code>{shortId(exec.id)}</code></td>
+            <td>{exec.workflow}</td>
+            <td><span class="badge badge-{exec.status.toLowerCase()}">{exec.status}</span></td>
+            <td>{new Date(exec.created_at).toLocaleString()}</td>
+            <td>{duration(exec)}</td>
+            <td class="text-xs text-muted">{inputSummary(exec.input)}</td>
+          </tr>
+        {/each}
+      {/if}
     </tbody>
   </table>
 {/if}

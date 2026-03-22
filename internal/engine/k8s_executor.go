@@ -44,7 +44,9 @@ func (e *K8sExecutor) buildHandler(execID string) func(context.Context, string, 
 			return nil, fmt.Errorf("k8s_executor: generate token for %q: %w", stateName, err)
 		}
 
-		e.Telemetry.RecordStateTransition(ctx, execID, stateName, string(store.StatusPending), string(store.StatusRunning), "")
+		if e.Telemetry != nil {
+			e.Telemetry.RecordStateTransition(ctx, execID, stateName, string(store.StatusPending), string(store.StatusRunning), "")
+		}
 		if e.Notify != nil {
 			e.Notify(execID, stateName, string(store.StatusPending), string(store.StatusRunning), "")
 		}
@@ -79,7 +81,9 @@ func (e *K8sExecutor) buildHandler(execID string) func(context.Context, string, 
 		if result.Failed {
 			log.Printf("k8s_executor: [%s] job %q failed: %s", execID, name, result.Message)
 			e.deleteJobBestEffort(ctx, name)
-			e.Telemetry.RecordStateTransition(ctx, execID, stateName, string(store.StatusRunning), string(store.StatusFailed), result.Message)
+			if e.Telemetry != nil {
+				e.Telemetry.RecordStateTransition(ctx, execID, stateName, string(store.StatusRunning), string(store.StatusFailed), result.Message)
+			}
 			if e.Notify != nil {
 				e.Notify(execID, stateName, string(store.StatusRunning), string(store.StatusFailed), result.Message)
 			}
@@ -94,7 +98,9 @@ func (e *K8sExecutor) buildHandler(execID string) func(context.Context, string, 
 		}
 
 		e.deleteJobBestEffort(ctx, name)
-		e.Telemetry.RecordStateTransition(ctx, execID, stateName, string(store.StatusRunning), string(store.StatusCompleted), "")
+		if e.Telemetry != nil {
+			e.Telemetry.RecordStateTransition(ctx, execID, stateName, string(store.StatusRunning), string(store.StatusCompleted), "")
+		}
 		if e.Notify != nil {
 			e.Notify(execID, stateName, string(store.StatusRunning), string(store.StatusCompleted), "")
 		}

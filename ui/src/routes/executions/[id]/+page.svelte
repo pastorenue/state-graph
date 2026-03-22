@@ -107,20 +107,22 @@
   </div>
 
   <h2 class="text-xl text-muted mt-6 mb-2 border-b border-border pb-1">States</h2>
-  {#if states.length === 0}
-    <p class="empty">No states yet.</p>
-  {:else}
-    <table>
-      <thead>
-        <tr>
-          <th>State</th>
-          <th>Status</th>
-          <th>Attempt</th>
-          <th>Duration</th>
-          <th>Error</th>
+  <table>
+    <thead>
+      <tr>
+        <th>State</th>
+        <th>Status</th>
+        <th>Attempt</th>
+        <th>Duration</th>
+        <th>Error</th>
+      </tr>
+    </thead>
+    <tbody>
+      {#if states.length === 0}
+        <tr class="hover:bg-transparent cursor-default">
+          <td colspan="5" class="empty border-none">No states yet.</td>
         </tr>
-      </thead>
-      <tbody>
+      {:else}
         {#each states as s (s.state_name)}
           <tr on:click={() => toggleState(s.state_name)}>
             <td>{s.state_name}</td>
@@ -146,24 +148,26 @@
             </tr>
           {/if}
         {/each}
-      </tbody>
-    </table>
-  {/if}
+      {/if}
+    </tbody>
+  </table>
 
   <h2 class="text-xl text-muted mt-6 mb-2 border-b border-border pb-1">Event Timeline</h2>
-  {#if events.length === 0}
-    <p class="empty">No events recorded.</p>
-  {:else}
-    <table>
-      <thead>
-        <tr>
-          <th>Time</th>
-          <th>State</th>
-          <th>Transition</th>
-          <th>Error</th>
+  <table>
+    <thead>
+      <tr>
+        <th>Time</th>
+        <th>State</th>
+        <th>Transition</th>
+        <th>Error</th>
+      </tr>
+    </thead>
+    <tbody>
+      {#if events.length === 0}
+        <tr class="hover:bg-transparent cursor-default">
+          <td colspan="4" class="empty border-none">No events recorded.</td>
         </tr>
-      </thead>
-      <tbody>
+      {:else}
         {#each events as ev (ev.event_id)}
           <tr>
             <td class="text-xs">{new Date(ev.occurred_at).toLocaleString()}</td>
@@ -176,8 +180,8 @@
             <td class="text-red-600 text-xs">{ev.error || '—'}</td>
           </tr>
         {/each}
-      </tbody>
-    </table>
-  {/if}
+      {/if}
+    </tbody>
+  </table>
 {/if}
 </div>

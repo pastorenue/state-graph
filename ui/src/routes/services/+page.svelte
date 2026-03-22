@@ -54,8 +54,6 @@
   <p class="empty">Loading…</p>
 {:else if error}
   <p class="empty text-red-600">{error}</p>
-{:else if services.length === 0}
-  <p class="empty">No services registered.</p>
 {:else}
   <table>
     <thead>
@@ -69,35 +67,41 @@
       </tr>
     </thead>
     <tbody>
-      {#each services as svc (svc.name)}
-        <tr on:click={() => toggleService(svc.name)}>
-          <td><strong>{svc.name}</strong></td>
-          <td>{svc.mode}</td>
-          <td><span class="badge badge-{svc.status.toLowerCase()}">{svc.status}</span></td>
-          <td>{svc.mode === 'Deployment' ? `${svc.min_scale}–${svc.max_scale}` : '—'}</td>
-          <td class="text-xs">{svc.ingress_host || '—'}</td>
-          <td class="text-xs">{new Date(svc.updated_at).toLocaleString()}</td>
+      {#if services.length === 0}
+        <tr class="hover:bg-transparent cursor-default">
+          <td colspan="6" class="empty border-none">No services registered.</td>
         </tr>
-        {#if expandedService === svc.name}
-          <tr>
-            <td colspan="6">
-              <div class="p-3 bg-surface rounded-md my-1">
-                <div class="flex gap-6 text-sm text-muted flex-wrap mb-1">
-                  <span>Timeout: <strong class="text-text">{svc.timeout_seconds}s</strong></span>
-                  <span>Port: <strong class="text-text">{svc.port}</strong></span>
-                  <span>Cluster IP: <strong class="text-text">{svc.cluster_ip || '—'}</strong></span>
-                  <span>Scale: <strong class="text-text">{svc.min_scale} – {svc.max_scale}</strong></span>
-                </div>
-                <div class="flex gap-6 text-sm text-muted flex-wrap">
-                  <a class="text-accent hover:text-accent-dim text-sm" href="/logs?service_name={encodeURIComponent(svc.name)}" on:click|stopPropagation={() => goto(`/logs?service_name=${encodeURIComponent(svc.name)}`)}>
-                    View logs →
-                  </a>
-                </div>
-              </div>
-            </td>
+      {:else}
+        {#each services as svc (svc.name)}
+          <tr on:click={() => toggleService(svc.name)}>
+            <td><strong>{svc.name}</strong></td>
+            <td>{svc.mode}</td>
+            <td><span class="badge badge-{svc.status.toLowerCase()}">{svc.status}</span></td>
+            <td>{svc.mode === 'Deployment' ? `${svc.min_scale}–${svc.max_scale}` : '—'}</td>
+            <td class="text-xs">{svc.ingress_host || '—'}</td>
+            <td class="text-xs">{new Date(svc.updated_at).toLocaleString()}</td>
           </tr>
-        {/if}
-      {/each}
+          {#if expandedService === svc.name}
+            <tr>
+              <td colspan="6">
+                <div class="p-3 bg-surface rounded-md my-1">
+                  <div class="flex gap-6 text-sm text-muted flex-wrap mb-1">
+                    <span>Timeout: <strong class="text-text">{svc.timeout_seconds}s</strong></span>
+                    <span>Port: <strong class="text-text">{svc.port}</strong></span>
+                    <span>Cluster IP: <strong class="text-text">{svc.cluster_ip || '—'}</strong></span>
+                    <span>Scale: <strong class="text-text">{svc.min_scale} – {svc.max_scale}</strong></span>
+                  </div>
+                  <div class="flex gap-6 text-sm text-muted flex-wrap">
+                    <a class="text-accent hover:text-accent-dim text-sm" href="/logs?service_name={encodeURIComponent(svc.name)}" on:click|stopPropagation={() => goto(`/logs?service_name=${encodeURIComponent(svc.name)}`)}>
+                      View logs →
+                    </a>
+                  </div>
+                </div>
+              </td>
+            </tr>
+          {/if}
+        {/each}
+      {/if}
     </tbody>
   </table>
 {/if}

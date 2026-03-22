@@ -96,12 +96,12 @@
   <p class="empty">Loading…</p>
 {:else if error}
   <p class="empty text-red-600">{error}</p>
-{:else if logs.length === 0 && total === 0}
-  <p class="empty">No logs found for the selected filters.</p>
 {:else}
-  <div class="text-xs text-muted mb-2">
-    Showing {offset + 1}–{Math.min(offset + limit, total)} of {total} results
-  </div>
+  {#if logs.length > 0 || total > 0}
+    <div class="text-xs text-muted mb-2">
+      Showing {offset + 1}–{Math.min(offset + limit, total)} of {total} results
+    </div>
+  {/if}
 
   <table>
     <thead>
@@ -114,27 +114,35 @@
       </tr>
     </thead>
     <tbody>
-      {#each logs as log (log.log_id)}
-        <tr>
-          <td class="text-xs whitespace-nowrap">{new Date(log.occurred_at).toLocaleString()}</td>
-          <td><span class={levelBadge(log.level)}>{log.level}</span></td>
-          <td class="text-xs">
-            {#if log.execution_id}
-              <code>{log.execution_id.slice(0, 8)}…</code>
-            {:else if log.service_name}
-              {log.service_name}
-            {/if}
-          </td>
-          <td class="text-xs">{log.state_name || '—'}</td>
-          <td class="text-sm">{log.message}</td>
+      {#if logs.length === 0 && total === 0}
+        <tr class="hover:bg-transparent cursor-default">
+          <td colspan="5" class="empty border-none">No logs found for the selected filters.</td>
         </tr>
-      {/each}
+      {:else}
+        {#each logs as log (log.log_id)}
+          <tr>
+            <td class="text-xs whitespace-nowrap">{new Date(log.occurred_at).toLocaleString()}</td>
+            <td><span class={levelBadge(log.level)}>{log.level}</span></td>
+            <td class="text-xs">
+              {#if log.execution_id}
+                <code>{log.execution_id.slice(0, 8)}…</code>
+              {:else if log.service_name}
+                {log.service_name}
+              {/if}
+            </td>
+            <td class="text-xs">{log.state_name || '—'}</td>
+            <td class="text-sm">{log.message}</td>
+          </tr>
+        {/each}
+      {/if}
     </tbody>
   </table>
 
-  <div class="flex gap-2 mt-4">
-    <button on:click={prevPage} disabled={offset === 0} class="disabled:opacity-40 disabled:cursor-not-allowed">← Prev</button>
-    <button on:click={nextPage} disabled={offset + limit >= total} class="disabled:opacity-40 disabled:cursor-not-allowed">Next →</button>
-  </div>
+  {#if logs.length > 0 || total > 0}
+    <div class="flex gap-2 mt-4">
+      <button on:click={prevPage} disabled={offset === 0} class="disabled:opacity-40 disabled:cursor-not-allowed">← Prev</button>
+      <button on:click={nextPage} disabled={offset + limit >= total} class="disabled:opacity-40 disabled:cursor-not-allowed">Next →</button>
+    </div>
+  {/if}
 {/if}
 </div>
