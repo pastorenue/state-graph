@@ -4,7 +4,10 @@ services:
     ports:
       - "8080:8080"
       - "9090:9090"
+    volumes:
+      - ${HOME}/.kube:/home/nonroot/.kube:ro
     environment:
+      KUBECONFIG: "/home/nonroot/.kube/config"
       KFLOW_MONGO_URI: "mongodb://mongo:27017"
       KFLOW_MONGO_DB: kflow
       KFLOW_NAMESPACE: kflow

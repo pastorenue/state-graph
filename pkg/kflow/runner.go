@@ -69,8 +69,8 @@ func registerWorkflow(server, apiKey string, wf *Workflow) error {
 	}
 	defer resp.Body.Close()
 
-	// 409 Conflict means already registered — treat as OK.
-	if resp.StatusCode == http.StatusConflict || resp.StatusCode == http.StatusCreated {
+	// grpc-gateway returns 200 OK for successful unary calls; also accept 201/409.
+	if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusConflict {
 		return nil
 	}
 	raw, _ := io.ReadAll(resp.Body)
@@ -98,7 +98,7 @@ func triggerExecution(server, apiKey, name string, input Input) error {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusAccepted {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
 		raw, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("trigger execution: server returned %d: %s", resp.StatusCode, raw)
 	}

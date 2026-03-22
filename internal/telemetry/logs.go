@@ -76,10 +76,6 @@ func StreamJobLogs(
 	namespace, jobName, execID, stateName string,
 	lw *LogWriter,
 ) {
-	if lw == nil {
-		return
-	}
-
 	pods, err := clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: "job-name=" + jobName,
 	})
@@ -98,7 +94,11 @@ func StreamJobLogs(
 
 		scanner := bufio.NewScanner(stream)
 		for scanner.Scan() {
-			lw.Write(ctx, execID, "", stateName, "INFO", scanner.Text())
+			line := scanner.Text()
+			log.Printf("job-log: [%s/%s] %s", execID, stateName, line)
+			if lw != nil {
+				lw.Write(ctx, execID, "", stateName, "INFO", line)
+			}
 		}
 		if err := scanner.Err(); err != nil {
 			log.Printf("telemetry WARN: StreamJobLogs scan pod %q: %v", pod.Name, err)
