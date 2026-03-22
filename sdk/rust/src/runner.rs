@@ -7,35 +7,35 @@ use crate::{Input, Output};
 /// Entry point for workflow execution.
 ///
 /// Dispatch priority:
-/// 1. --state=<name>   → execute one state via RunnerService gRPC, then exit.
-/// 2. --service=<name> → enter service execution path.
-/// 3. (no flag)        → validate, serialise workflow, POST to Control Plane.
-///
-/// TODO(Phase 13): implement gRPC runner protocol using tonic stubs generated
-/// from proto/kflow/v1/runner.proto (tonic-build in build.rs).
-pub fn run(wf: Workflow) {
+/// 1. KFLOW_STATE_TOKEN set → worker mode (K8s Job container executing one state).
+/// 2. --state=<name>        → same worker mode via CLI flag.
+/// 3. (no flag)             → validate, serialise workflow, POST to Control Plane.
+pub fn run(wf: Workflow, input: Input) {
+    let token = std::env::var("KFLOW_STATE_TOKEN").unwrap_or_default();
+    if !token.is_empty() {
+        let state_name = flag("state").unwrap_or_else(|| {
+            eprintln!("kflow: KFLOW_STATE_TOKEN set but --state=<name> missing");
+            std::process::exit(1);
+        });
+        run_state(wf, &state_name, &token);
+        return;
+    }
+
     if let Some(state_name) = flag("state") {
-        run_state(wf, &state_name);
+        run_state(wf, &state_name, "");
         return;
     }
     if flag("service").is_some() {
         eprintln!("kflow: --service flag passed to run(); use run_service() for service dispatch");
         std::process::exit(1);
     }
-    // Registration path — validate then POST to Control Plane.
     if let Err(e) = wf.validate() {
         panic!("kflow::run: invalid workflow: {e}");
     }
-    post_workflow(&wf);
+    post_workflow(&wf, &input);
 }
 
 /// Entry point for service registration and execution.
-///
-/// Dispatch priority:
-/// 1. --service=<name> matches svc → execute service worker.
-/// 2. (no match) → validate svc, POST definition to Control Plane.
-///
-/// TODO(Phase 13): implement gRPC runner protocol.
 pub fn run_service(svc: ServiceDef) {
     if let Some(name) = flag("service") {
         if name == svc.name {
@@ -52,9 +52,6 @@ pub fn run_service(svc: ServiceDef) {
 /// Runs a workflow entirely in-process without any Control Plane or Kubernetes.
 ///
 /// WARNING: for local development and unit testing only. Never use in production.
-///
-/// Returns the final Output when the workflow reaches a terminal state, or
-/// Err if the workflow fails without a Catch handler.
 pub fn run_local(wf: Workflow, input: Input) -> Result<Output, String> {
     if let Err(e) = wf.validate() {
         return Err(format!("run_local: invalid workflow: {e}"));
@@ -102,8 +99,8 @@ async fn execute_workflow(
     entry:  String,
     input:  Input,
 ) -> Result<Output, String> {
-    let mut current     = input;
-    let mut node_name   = entry;
+    let mut current   = input;
+    let mut node_name = entry;
 
     loop {
         if node_name == SUCCEED || node_name == FAIL {
@@ -123,13 +120,11 @@ async fn execute_workflow(
         match result {
             Ok(output) => {
                 if td.is_choice() {
-                    // Choice: key is the next state name.
                     let choice = output
                         .get("__choice__")
                         .and_then(|v| v.as_str())
                         .unwrap_or(FAIL)
                         .to_string();
-                    current   = current; // pass same input to choice target
                     node_name = choice;
                 } else {
                     let next = node.next.clone().unwrap_or_else(|| FAIL.to_string());
@@ -158,7 +153,6 @@ async fn execute_state(
     node:  &Node,
     input: Input,
 ) -> Result<Output, String> {
-    // Wait state
     if td.is_wait() {
         if let Some(dur) = td.wait_duration() {
             tokio::time::sleep(dur).await;
@@ -166,7 +160,7 @@ async fn execute_state(
         return Ok(Output::new());
     }
 
-    let policy = node.retry.as_ref();
+    let policy          = node.retry.as_ref();
     let max_attempts    = policy.map(|p| p.max_attempts.max(1)).unwrap_or(1);
     let backoff_seconds = policy.map(|p| p.backoff_seconds).unwrap_or(0);
 
@@ -201,8 +195,8 @@ async fn execute_state(
         };
 
         match result {
-            Ok(out)  => return Ok(out),
-            Err(e)   => last_err = e,
+            Ok(out) => return Ok(out),
+            Err(e)  => last_err = e,
         }
     }
 
@@ -210,35 +204,215 @@ async fn execute_state(
 }
 
 // ---------------------------------------------------------------------------
-// Control Plane HTTP helpers (stubs — full impl uses httpx / reqwest)
+// Worker mode: dial RunnerService, GetInput, call handler, report result
 // ---------------------------------------------------------------------------
 
-fn post_workflow(wf: &Workflow) {
-    let _ = &wf.name; // used for URL construction (Phase 5 integration)
-    // TODO(Phase 5 integration): serialise workflow and POST to
-    // $KFLOW_CONTROL_PLANE_URL/api/v1/workflows/:name/run using reqwest.
-    eprintln!("kflow: Control Plane HTTP submission not yet wired (set KFLOW_CONTROL_PLANE_URL)");
-}
+fn run_state(wf: Workflow, state_name: &str, token: &str) {
+    use crate::proto::kflow::v1::{
+        runner_service_client::RunnerServiceClient,
+        CompleteStateRequest, FailStateRequest, GetInputRequest,
+    };
 
-fn post_service(_svc: &ServiceDef) {
-    // TODO: POST to /api/v1/services.
-    eprintln!("kflow: Control Plane service registration not yet wired");
-}
+    let endpoint = std::env::var("KFLOW_GRPC_ENDPOINT")
+        .unwrap_or_else(|_| "http://kflow-cp.kflow.svc.cluster.local:9090".to_string());
+    let token = token.to_string();
 
-fn run_state(_wf: Workflow, state_name: &str) {
-    // TODO(Phase 13): dial KFLOW_GRPC_ENDPOINT, GetInput(token), run handler,
-    // CompleteState/FailState, std::process::exit(0/1).
-    eprintln!(
-        "kflow: --state={state_name} requires gRPC RunnerService (Phase 13 not yet implemented)"
-    );
-    std::process::exit(1);
+    let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+    rt.block_on(async move {
+        let mut client = match RunnerServiceClient::connect(endpoint).await {
+            Ok(c)  => c,
+            Err(e) => {
+                eprintln!("kflow: connect to RunnerService: {e}");
+                std::process::exit(1);
+            }
+        };
+
+        let resp = match client.get_input(GetInputRequest { token: token.clone() }).await {
+            Ok(r)  => r.into_inner(),
+            Err(e) => {
+                let _ = client.fail_state(FailStateRequest {
+                    token: token.clone(),
+                    error_message: e.to_string(),
+                }).await;
+                std::process::exit(1);
+            }
+        };
+
+        let handler_input: Input = resp.payload
+            .map(|s| {
+                s.fields.into_iter()
+                    .map(|(k, v)| (k, proto_value_to_json(v)))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let td = match wf.tasks.get(state_name) {
+            Some(t) => t,
+            None => {
+                let _ = client.fail_state(FailStateRequest {
+                    token: token.clone(),
+                    error_message: format!("unknown state: {state_name}"),
+                }).await;
+                std::process::exit(1);
+            }
+        };
+
+        let handler = match td.handler.as_ref() {
+            Some(h) => h,
+            None => {
+                let _ = client.fail_state(FailStateRequest {
+                    token: token.clone(),
+                    error_message: format!("state {state_name:?}: no inline handler"),
+                }).await;
+                std::process::exit(1);
+            }
+        };
+
+        match handler(handler_input).await {
+            Ok(output) => {
+                let struct_val = to_proto_struct(&output);
+                match client.complete_state(CompleteStateRequest {
+                    token,
+                    output: Some(struct_val),
+                }).await {
+                    Ok(_) => std::process::exit(0),
+                    Err(e) => {
+                        eprintln!("kflow: CompleteState: {e}");
+                        std::process::exit(1);
+                    }
+                }
+            }
+            Err(e) => {
+                let _ = client.fail_state(FailStateRequest {
+                    token,
+                    error_message: e.to_string(),
+                }).await;
+                std::process::exit(1);
+            }
+        }
+    });
 }
 
 fn run_service_worker(_svc: ServiceDef) {
-    // TODO(Phase 13): Deployment → start tonic gRPC ServiceRunnerService server.
-    //                 Lambda    → dial KFLOW_GRPC_ENDPOINT, GetInput, run, CompleteState/FailState.
-    eprintln!("kflow: service worker mode requires gRPC RunnerService (Phase 13 not yet implemented)");
+    eprintln!("kflow: service worker mode not yet implemented");
     std::process::exit(1);
+}
+
+// ---------------------------------------------------------------------------
+// Control Plane HTTP submission
+// ---------------------------------------------------------------------------
+
+fn post_workflow(wf: &Workflow, input: &Input) {
+    let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+    rt.block_on(async move {
+        let endpoint = std::env::var("KFLOW_SERVER")
+            .unwrap_or_else(|_| "http://localhost:8080".to_string());
+        let api_key = std::env::var("KFLOW_API_KEY").unwrap_or_default();
+        let client = reqwest::Client::new();
+        let mut builder = client.post(format!("{endpoint}/api/v1/workflows"))
+            .json(&serialise_graph(wf));
+        if !api_key.is_empty() {
+            builder = builder.header("Authorization", format!("Bearer {api_key}"));
+        }
+        let reg = builder.send().await.expect("register workflow");
+        let status = reg.status().as_u16();
+        if ![200u16, 201, 409].contains(&status) {
+            let body = reg.text().await.unwrap_or_default();
+            eprintln!("kflow: register failed {status}: {body}");
+            std::process::exit(1);
+        }
+
+        let mut run_builder = client
+            .post(format!("{endpoint}/api/v1/workflows/{}/run", wf.name))
+            .json(&serde_json::json!({"input": input}));
+        if !api_key.is_empty() {
+            run_builder = run_builder.header("Authorization", format!("Bearer {api_key}"));
+        }
+        let run = run_builder.send().await.expect("trigger workflow");
+        let run_status = run.status().as_u16();
+        if ![200u16, 201, 202].contains(&run_status) {
+            let body = run.text().await.unwrap_or_default();
+            eprintln!("kflow: run failed {run_status}: {body}");
+            std::process::exit(1);
+        }
+    });
+}
+
+fn post_service(_svc: &ServiceDef) {
+    eprintln!("kflow: Control Plane service registration not yet wired");
+}
+
+fn serialise_graph(wf: &Workflow) -> serde_json::Value {
+    let steps: Vec<_> = wf.steps.iter().map(|sb| {
+        let td    = wf.tasks.get(&sb.name);
+        let retry = sb.retry.clone().or_else(|| td.and_then(|t| t.retry.clone()));
+        let mut step = serde_json::json!({
+            "name":    sb.name,
+            "next":    sb.next.clone().unwrap_or_default(),
+            "catch":   sb.catch.clone()
+                .or_else(|| td.and_then(|t| t.catch.clone()))
+                .unwrap_or_default(),
+            "is_end":  sb.next.as_deref() == Some(SUCCEED),
+        });
+        if let Some(r) = retry {
+            step["retry"] = serde_json::json!({
+                "max_attempts": r.max_attempts,
+                "backoff_seconds": r.backoff_seconds,
+            });
+        }
+        step
+    }).collect();
+
+    serde_json::json!({ "graph": { "name": wf.name, "steps": steps } })
+}
+
+// ---------------------------------------------------------------------------
+// Proto value conversion helpers
+// ---------------------------------------------------------------------------
+
+fn proto_value_to_json(v: prost_types::Value) -> serde_json::Value {
+    use prost_types::value::Kind;
+    match v.kind {
+        Some(Kind::NullValue(_))   => serde_json::Value::Null,
+        Some(Kind::BoolValue(b))   => serde_json::Value::Bool(b),
+        Some(Kind::NumberValue(n)) => serde_json::json!(n),
+        Some(Kind::StringValue(s)) => serde_json::Value::String(s),
+        Some(Kind::ListValue(l))   => {
+            serde_json::Value::Array(l.values.into_iter().map(proto_value_to_json).collect())
+        }
+        Some(Kind::StructValue(s)) => {
+            let map: serde_json::Map<_, _> = s.fields.into_iter()
+                .map(|(k, v)| (k, proto_value_to_json(v)))
+                .collect();
+            serde_json::Value::Object(map)
+        }
+        None => serde_json::Value::Null,
+    }
+}
+
+fn json_to_proto_value(v: serde_json::Value) -> prost_types::Value {
+    use prost_types::value::Kind;
+    let kind = match v {
+        serde_json::Value::Null      => Kind::NullValue(0),
+        serde_json::Value::Bool(b)   => Kind::BoolValue(b),
+        serde_json::Value::Number(n) => Kind::NumberValue(n.as_f64().unwrap_or(0.0)),
+        serde_json::Value::String(s) => Kind::StringValue(s),
+        serde_json::Value::Array(a)  => Kind::ListValue(prost_types::ListValue {
+            values: a.into_iter().map(json_to_proto_value).collect(),
+        }),
+        serde_json::Value::Object(o) => Kind::StructValue(prost_types::Struct {
+            fields: o.into_iter().map(|(k, v)| (k, json_to_proto_value(v))).collect(),
+        }),
+    };
+    prost_types::Value { kind: Some(kind) }
+}
+
+fn to_proto_struct(output: &Output) -> prost_types::Struct {
+    prost_types::Struct {
+        fields: output.iter()
+            .map(|(k, v)| (k.clone(), json_to_proto_value(v.clone())))
+            .collect(),
+    }
 }
 
 fn flag(name: &str) -> Option<String> {
@@ -327,7 +501,7 @@ mod tests {
         let mut input = Input::new();
         input.insert("v".to_string(), serde_json::json!(5));
         let output = run_local(wf, input).unwrap();
-        assert_eq!(output["v"], serde_json::json!(11)); // 5*2=10, +1=11
+        assert_eq!(output["v"], serde_json::json!(11));
     }
 
     #[test]
@@ -397,7 +571,7 @@ mod tests {
 
     #[test]
     fn test_run_local_invalid_workflow() {
-        let wf = Workflow::new("test"); // no steps
+        let wf = Workflow::new("test");
         assert!(run_local(wf, Input::new()).is_err());
     }
 }

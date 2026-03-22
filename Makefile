@@ -1,4 +1,4 @@
-.PHONY: build test test-race vet lint clean up down ui-install ui-build ui-check ui-dev helm-lint helm-template docker-build proto-gen deps build-cli install-cli demo examples py-examples example-cp
+.PHONY: build test test-race vet lint clean up down ui-install ui-build ui-check ui-dev helm-lint helm-template docker-build proto-gen proto-gen-python deps build-cli install-cli demo examples py-examples example-cp example-k8s-build example-k8s-load example-k8s-setup example-k8s-run example-k8s-clean
 
 GO_IMAGE       := golang:1.22
 NODE_IMAGE     := node:22-alpine
@@ -128,6 +128,45 @@ example-cp:
 	  --network state-graph_default \
 	  -e KFLOW_API_ENDPOINT=http://orchestrator:8080 \
 	  $(GO_IMAGE) go run ./examples/05-control-plane
+
+## proto-gen-python: generate Python RunnerService stubs (flat output in sdk/python/kflow/proto/)
+proto-gen-python:
+	mkdir -p sdk/python/kflow/proto
+	$(DOCKER_RUN_PY) sh -c "pip install -q grpcio-tools==1.64.0 && \
+	  python -m grpc_tools.protoc \
+	    -I proto/kflow/v1 \
+	    --python_out=sdk/python/kflow/proto \
+	    --grpc_python_out=sdk/python/kflow/proto \
+	    runner.proto types.proto && \
+	  sed -i 's/^import runner_pb2/from . import runner_pb2/' sdk/python/kflow/proto/runner_pb2_grpc.py"
+
+## example-k8s-build: build orchestrator + Go example images
+example-k8s-build:
+	docker build -t kflow:dev .
+	docker build -t kflow-example-k8s:dev -f examples/06-kubernetes/Dockerfile .
+
+## example-k8s-load: load images into minikube
+example-k8s-load: example-k8s-build
+	minikube image load kflow:dev
+	minikube image load kflow-example-k8s:dev
+
+## example-k8s-setup: deploy orchestrator stack to minikube
+example-k8s-setup: example-k8s-load
+	kubectl apply -f examples/06-kubernetes/k8s/
+	kubectl rollout status deployment/mongo -n kflow --timeout=60s
+	kubectl rollout status deployment/kflow-orchestrator -n kflow --timeout=90s
+
+## example-k8s-run: submit workflow, stream logs
+example-k8s-run:
+	kubectl delete job kflow-example-runner -n kflow --ignore-not-found
+	kubectl apply -f examples/06-kubernetes/k8s/run-job.yaml
+	kubectl wait --for=condition=complete job/kflow-example-runner -n kflow --timeout=120s
+	kubectl logs job/kflow-example-runner -n kflow
+
+## example-k8s-clean: tear down K8s example
+example-k8s-clean:
+	kubectl delete -f examples/06-kubernetes/k8s/run-job.yaml --ignore-not-found
+	kubectl delete -f examples/06-kubernetes/k8s/ --ignore-not-found
 
 ## clean: remove build artefacts
 clean:

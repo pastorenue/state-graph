@@ -1,6 +1,7 @@
 pub mod workflow;
 pub mod service;
 pub mod runner;
+pub mod proto;
 
 pub use workflow::{Workflow, StepBuilder, step, SUCCEED, FAIL};
 pub use service::{ServiceDef, ServiceMode};

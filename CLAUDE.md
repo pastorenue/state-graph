@@ -213,7 +213,7 @@ kflow follows Clean Architecture and Domain-Driven Design principles. The existi
 
 ### Dependency Rules (enforce in CI)
 
-1. `pkg/kflow/` imports nothing from `internal/`.
+1. `pkg/kflow/` imports nothing from `internal/`. **Exception**: `pkg/kflow/worker.go` may import `internal/gen/kflow/v1` — proto stubs are byte-encoding infrastructure, not engine/store coupling.
 2. `internal/store/` (interface + record types) imports only `pkg/kflow/` and stdlib.
 3. `internal/engine/` imports `internal/store/` and `pkg/kflow/`; must NOT import `internal/api/` or `internal/k8s/`.
 4. `internal/telemetry/` imports only `internal/store/` Status types + stdlib/ClickHouse driver; must NOT import engine or api.

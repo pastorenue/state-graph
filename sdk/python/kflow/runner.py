@@ -20,51 +20,56 @@ from kflow.workflow import (
 from kflow.service import ServiceDef
 
 
-def run(wf: Workflow) -> None:
+def run(wf: Workflow, input: Input = None) -> None:
     """Entry point for workflow execution.
 
     Dispatch priority:
-    1. --state=<name>   → execute one state via RunnerService gRPC, then exit.
-    2. --service=<name> → enter service execution path.
-    3. (no flag)        → validate, serialise graph as JSON, POST to Control Plane.
-
-    gRPC runner protocol is implemented in Phase 13.
+    1. KFLOW_STATE_TOKEN set → worker mode (K8s Job executing one state).
+    2. --state=<name>        → same worker mode via CLI flag.
+    3. --local flag          → run_local in-process.
+    4. (no flag)             → validate, POST graph + trigger to Control Plane.
     """
-    state_name   = _flag("state")
+    token = os.environ.get("KFLOW_STATE_TOKEN", "")
+    if token:
+        state_name = _flag("state")
+        if not state_name:
+            sys.stderr.write("kflow: KFLOW_STATE_TOKEN set but --state=<name> missing\n")
+            sys.exit(1)
+        _run_state(wf, state_name, token)
+        return
+
+    state_name = _flag("state")
     service_name = _flag("service")
 
     if state_name:
-        _run_state(wf, state_name)
+        # Token not in env; may be injected another way — attempt worker dispatch.
+        token = os.environ.get("KFLOW_STATE_TOKEN", "")
+        _run_state(wf, state_name, token)
         return
 
     if service_name:
-        # Workflow-context service execution is handled by run_service().
         sys.stderr.write(
-            f"kflow: --service flag passed to run(); use run_service() for service dispatch\n"
+            "kflow: --service flag passed to run(); use run_service() for service dispatch\n"
         )
         sys.exit(1)
 
+    if "--local" in sys.argv[1:]:
+        run_local(wf, input or {})
+        return
+
     # Normal path: validate then POST to Control Plane.
     wf.validate()
-    _post_workflow(wf)
+    _post_workflow(wf, input)
 
 
 def run_service(svc: ServiceDef) -> None:
-    """Entry point for service registration and execution.
-
-    Dispatch priority:
-    1. --service=<name> matches svc → execute service (Lambda or Deployment gRPC server).
-    2. (no match) → validate svc, POST service definition to Control Plane.
-
-    gRPC runner protocol is implemented in Phase 13.
-    """
+    """Entry point for service registration and execution."""
     service_name = _flag("service")
 
     if service_name and service_name == svc._name:
         _run_service_worker(svc)
         return
 
-    # Registration path.
     svc.validate()
     _post_service(svc)
 
@@ -73,11 +78,6 @@ def run_local(wf: Workflow, input: Input) -> Output:
     """Runs a workflow entirely in-process without any Control Plane or Kubernetes.
 
     WARNING: for local development and testing only. Never use in production.
-
-    Implements the same write-ahead state transition logic as the Go MemoryStore,
-    using an in-memory dict. Retries and Catch routing are fully supported.
-    Returns the final Output when the workflow reaches a terminal state.
-    Raises RuntimeError if the workflow fails without a Catch handler.
     """
     wf.validate()
     graph = _build_graph(wf)
@@ -182,56 +182,8 @@ def _execute_state_local(td, node: dict, input: dict):
     return None, last_err
 
 
-def _post_workflow(wf: Workflow) -> None:
-    """POST the workflow definition to the Control Plane HTTP API."""
-    try:
-        import httpx
-    except ImportError:
-        sys.stderr.write("kflow: httpx is required to submit workflows (pip install httpx)\n")
-        sys.exit(1)
-
-    endpoint = os.environ.get("KFLOW_CONTROL_PLANE_URL", "http://localhost:8080")
-    graph_json = _serialise_workflow(wf)
-
-    resp = httpx.post(
-        f"{endpoint}/api/v1/workflows/{wf._name}/run",
-        json=graph_json,
-        timeout=30,
-    )
-    if resp.status_code not in (200, 201):
-        sys.stderr.write(f"kflow: Control Plane returned {resp.status_code}: {resp.text}\n")
-        sys.exit(1)
-
-
-def _post_service(svc: ServiceDef) -> None:
-    """POST the service definition to the Control Plane HTTP API."""
-    try:
-        import httpx
-    except ImportError:
-        sys.stderr.write("kflow: httpx is required to register services (pip install httpx)\n")
-        sys.exit(1)
-
-    endpoint = os.environ.get("KFLOW_CONTROL_PLANE_URL", "http://localhost:8080")
-    resp = httpx.post(
-        f"{endpoint}/api/v1/services",
-        json={
-            "name":         svc._name,
-            "mode":         int(svc._mode),
-            "port":         svc._port,
-            "min_scale":    svc._min_scale,
-            "max_scale":    svc._max_scale,
-            "ingress_host": svc._ingress_host or "",
-            "timeout_ms":   int(svc._timeout * 1000),
-        },
-        timeout=30,
-    )
-    if resp.status_code not in (200, 201):
-        sys.stderr.write(f"kflow: Control Plane returned {resp.status_code}: {resp.text}\n")
-        sys.exit(1)
-
-
-def _serialise_workflow(wf: Workflow) -> dict:
-    """Serialise the workflow graph to a JSON-compatible dict."""
+def _serialise_graph(wf: Workflow) -> dict:
+    """Serialise the workflow graph to the RegisterWorkflow JSON format."""
     steps = []
     for sb in wf._steps:
         td = wf._tasks.get(sb.name)
@@ -250,31 +202,111 @@ def _serialise_workflow(wf: Workflow) -> dict:
     return {"steps": steps}
 
 
-def _run_state(wf: Workflow, state_name: str) -> None:
-    """Execute a single state via the RunnerService gRPC protocol (Phase 13).
+def _post_workflow(wf: Workflow, input: Input = None) -> None:
+    """Register + trigger the workflow on the Control Plane HTTP API."""
+    try:
+        import httpx
+    except ImportError:
+        sys.stderr.write("kflow: httpx is required to submit workflows (pip install httpx)\n")
+        sys.exit(1)
 
-    TODO(Phase 13): implement gRPC client using generated stubs from
-    proto/kflow/v1/runner.proto. Steps:
-    1. dial os.environ["KFLOW_GRPC_ENDPOINT"]
-    2. RunnerService.GetInput(state_token) → Input
-    3. call handler
-    4. RunnerService.CompleteState(token, output) or FailState(token, errMsg)
-    5. sys.exit(0) on success, sys.exit(1) on error
-    """
-    sys.stderr.write(
-        f"kflow: --state mode requires gRPC RunnerService (Phase 13 not yet implemented)\n"
+    endpoint = os.environ.get("KFLOW_SERVER", "http://localhost:8080")
+    api_key  = os.environ.get("KFLOW_API_KEY", "")
+    headers  = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+
+    # 1. Register (409 = already registered = OK)
+    graph_json = _serialise_graph(wf)
+    reg_resp = httpx.post(
+        f"{endpoint}/api/v1/workflows",
+        json={"graph": {"name": wf._name, **graph_json}},
+        headers=headers,
+        timeout=30,
     )
-    sys.exit(1)
+    if reg_resp.status_code not in (200, 201, 409):
+        sys.stderr.write(f"kflow: register failed {reg_resp.status_code}: {reg_resp.text}\n")
+        sys.exit(1)
+
+    # 2. Trigger
+    run_resp = httpx.post(
+        f"{endpoint}/api/v1/workflows/{wf._name}/run",
+        json={"input": input or {}},
+        headers=headers,
+        timeout=30,
+    )
+    if run_resp.status_code not in (200, 201, 202):
+        sys.stderr.write(f"kflow: run failed {run_resp.status_code}: {run_resp.text}\n")
+        sys.exit(1)
+
+
+def _post_service(svc: ServiceDef) -> None:
+    """POST the service definition to the Control Plane HTTP API."""
+    try:
+        import httpx
+    except ImportError:
+        sys.stderr.write("kflow: httpx is required to register services (pip install httpx)\n")
+        sys.exit(1)
+
+    endpoint = os.environ.get("KFLOW_SERVER", "http://localhost:8080")
+    api_key  = os.environ.get("KFLOW_API_KEY", "")
+    headers  = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    resp = httpx.post(
+        f"{endpoint}/api/v1/services",
+        json={
+            "name":         svc._name,
+            "mode":         int(svc._mode),
+            "port":         svc._port,
+            "min_scale":    svc._min_scale,
+            "max_scale":    svc._max_scale,
+            "ingress_host": svc._ingress_host or "",
+            "timeout_ms":   int(svc._timeout * 1000),
+        },
+        headers=headers,
+        timeout=30,
+    )
+    if resp.status_code not in (200, 201):
+        sys.stderr.write(f"kflow: Control Plane returned {resp.status_code}: {resp.text}\n")
+        sys.exit(1)
+
+
+def _run_state(wf: Workflow, state_name: str, token: str) -> None:
+    """Execute a single state via the RunnerService gRPC protocol (worker mode)."""
+    import grpc
+    from kflow.proto.runner_pb2 import GetInputRequest, CompleteStateRequest, FailStateRequest
+    from kflow.proto.runner_pb2_grpc import RunnerServiceStub
+    from google.protobuf.struct_pb2 import Struct
+
+    endpoint = os.environ.get(
+        "KFLOW_GRPC_ENDPOINT", "kflow-cp.kflow.svc.cluster.local:9090"
+    )
+    channel = grpc.insecure_channel(endpoint)
+    stub    = RunnerServiceStub(channel)
+
+    try:
+        resp  = stub.GetInput(GetInputRequest(token=token))
+        input = dict(resp.payload) if resp.payload else {}
+    except grpc.RpcError as exc:
+        sys.stderr.write(f"kflow: GetInput failed: {exc}\n")
+        sys.exit(1)
+
+    td = wf._tasks.get(state_name)
+    if td is None:
+        stub.FailState(FailStateRequest(token=token, error_message=f"unknown state: {state_name}"))
+        sys.exit(1)
+
+    try:
+        output = _call_handler(td._handler, input)
+        s = Struct()
+        s.update(output or {})
+        stub.CompleteState(CompleteStateRequest(token=token, output=s))
+        sys.exit(0)
+    except Exception as exc:
+        stub.FailState(FailStateRequest(token=token, error_message=str(exc)))
+        sys.exit(1)
 
 
 def _run_service_worker(svc: ServiceDef) -> None:
-    """Execute a service worker via the gRPC runner protocol (Phase 13).
-
-    TODO(Phase 13): implement gRPC client/server stubs.
-    - Deployment mode: start tonic gRPC ServiceRunnerService server.
-    - Lambda mode: dial KFLOW_GRPC_ENDPOINT, GetInput, run, CompleteState/FailState, exit.
-    """
+    """Execute a service worker via the gRPC runner protocol (Phase 13)."""
     sys.stderr.write(
-        f"kflow: service worker mode requires gRPC RunnerService (Phase 13 not yet implemented)\n"
+        "kflow: service worker mode requires gRPC RunnerService (Phase 13 not yet implemented)\n"
     )
     sys.exit(1)

@@ -1,0 +1,24 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kflow-example-runner
+  namespace: kflow
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: runner
+          image: kflow-example-k8s:dev
+          imagePullPolicy: Never
+          securityContext:
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          env:
+            - name: KFLOW_SERVER
+              value: "http://kflow-orchestrator.kflow.svc.cluster.local:8080"
