@@ -310,3 +310,49 @@ def test_run_local_async_handler():
     app.flow(step("Async").end())
     output = run_local(app, {})
     assert output["async"] is True
+
+
+# ---------------------------------------------------------------------------
+# with_image
+# ---------------------------------------------------------------------------
+
+def test_with_image_sets_image():
+    wf = Workflow("test")
+    wf.with_image("my-image:latest")
+    assert wf._image == "my-image:latest"
+
+
+def test_with_image_default_empty():
+    wf = Workflow("test")
+    assert wf._image == ""
+
+
+def test_with_image_included_in_serialised_graph():
+    from kflow.runner import _serialise_graph
+
+    wf = Workflow("test")
+
+    @wf.task("A")
+    def handler(inp):
+        return inp
+
+    wf.flow(step("A").end())
+    wf.with_image("kflow-example:dev")
+
+    graph = _serialise_graph(wf)
+    assert graph["image"] == "kflow-example:dev"
+
+
+def test_no_image_not_in_serialised_graph():
+    from kflow.runner import _serialise_graph
+
+    wf = Workflow("test")
+
+    @wf.task("A")
+    def handler(inp):
+        return inp
+
+    wf.flow(step("A").end())
+
+    graph = _serialise_graph(wf)
+    assert "image" not in graph

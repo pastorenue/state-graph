@@ -199,7 +199,10 @@ def _serialise_graph(wf: Workflow) -> dict:
                 "backoff_seconds": retry.backoff_seconds,
             } if retry else None,
         })
-    return {"steps": steps}
+    result: dict = {"steps": steps}
+    if wf._image:
+        result["image"] = wf._image
+    return result
 
 
 def _post_workflow(wf: Workflow, input: Input = None) -> None:

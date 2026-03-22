@@ -363,7 +363,11 @@ fn serialise_graph(wf: &Workflow) -> serde_json::Value {
         step
     }).collect();
 
-    serde_json::json!({ "graph": { "name": wf.name, "steps": steps } })
+    let mut graph = serde_json::json!({ "name": wf.name, "steps": steps });
+    if !wf.image.is_empty() {
+        graph["image"] = serde_json::json!(&wf.image);
+    }
+    serde_json::json!({ "graph": graph })
 }
 
 // ---------------------------------------------------------------------------
@@ -573,5 +577,23 @@ mod tests {
     fn test_run_local_invalid_workflow() {
         let wf = Workflow::new("test");
         assert!(run_local(wf, Input::new()).is_err());
+    }
+
+    #[test]
+    fn test_serialise_graph_includes_image() {
+        let mut wf = Workflow::new("test").with_image("kflow-example:dev");
+        wf.task("A", Some(ok_handler(serde_json::json!(1))));
+        wf.flow(vec![step("A").end()]);
+        let json = serialise_graph(&wf);
+        assert_eq!(json["graph"]["image"], "kflow-example:dev");
+    }
+
+    #[test]
+    fn test_serialise_graph_no_image_field_when_empty() {
+        let mut wf = Workflow::new("test");
+        wf.task("A", Some(ok_handler(serde_json::json!(1))));
+        wf.flow(vec![step("A").end()]);
+        let json = serialise_graph(&wf);
+        assert!(json["graph"]["image"].is_null());
     }
 }

@@ -78,6 +78,7 @@ def step(name: str) -> StepBuilder:
 class Workflow:
     def __init__(self, name: str) -> None:
         self._name  = name
+        self._image = ""
         self._tasks: dict[str, TaskDef] = {}
         self._names: list[str] = []   # insertion-order duplicate tracking
         self._steps: list[StepBuilder] = []
@@ -85,6 +86,11 @@ class Workflow:
     @property
     def name(self) -> str:
         return self._name
+
+    def with_image(self, image: str) -> "Workflow":
+        """Set the container image for K8s Job execution. Empty = in-process."""
+        self._image = image
+        return self
 
     def task(self, name: str) -> Callable:
         """Decorator — registers a function as a Task state."""

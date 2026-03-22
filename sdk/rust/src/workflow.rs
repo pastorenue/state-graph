@@ -149,6 +149,7 @@ impl StepBuilder {
 
 pub struct Workflow {
     pub(crate) name:  String,
+    pub(crate) image: String,
     pub(crate) tasks: HashMap<String, TaskDef>,
     pub(crate) names: Vec<String>, // insertion-order for duplicate detection
     pub(crate) steps: Vec<StepBuilder>,
@@ -158,10 +159,17 @@ impl Workflow {
     pub fn new(name: impl Into<String>) -> Self {
         Workflow {
             name:  name.into(),
+            image: String::new(),
             tasks: HashMap::new(),
             names: Vec::new(),
             steps: Vec::new(),
         }
+    }
+
+    /// Set the container image for K8s Job execution. Empty = in-process.
+    pub fn with_image(mut self, image: impl Into<String>) -> Self {
+        self.image = image.into();
+        self
     }
 
     pub fn task(&mut self, name: impl Into<String>, handler: Option<HandlerFn>) -> &mut TaskDef {
@@ -271,6 +279,18 @@ mod tests {
     fn test_sentinels() {
         assert_eq!(SUCCEED, "__succeed__");
         assert_eq!(FAIL,    "__fail__");
+    }
+
+    #[test]
+    fn test_with_image_sets_field() {
+        let wf = Workflow::new("test").with_image("my-image:latest");
+        assert_eq!(wf.image, "my-image:latest");
+    }
+
+    #[test]
+    fn test_image_default_empty() {
+        let wf = Workflow::new("test");
+        assert!(wf.image.is_empty());
     }
 
     #[test]
