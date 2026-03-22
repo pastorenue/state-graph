@@ -103,6 +103,9 @@ func BuildFromProto(proto *kflowv1.WorkflowGraph) (*Graph, error) {
 		if s.GetCatchState() != "" {
 			td.Catch(s.GetCatchState())
 		}
+		if s.GetServiceTarget() != "" {
+			td.InvokeService(s.GetServiceTarget())
+		}
 	}
 
 	steps := make([]*kflow.StepBuilder, 0, len(proto.GetSteps()))

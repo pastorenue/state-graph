@@ -10,11 +10,17 @@ import (
 	"github.com/pastorenue/kflow/pkg/kflow"
 )
 
+// ServiceInvoker dispatches an InvokeService step. Implemented by controller.ServiceDispatcher.
+type ServiceInvoker interface {
+	Dispatch(ctx context.Context, execID, stateName, serviceName string, input kflow.Input) (kflow.Output, error)
+}
+
 type Executor struct {
-	Store     store.Store
-	Handler   func(ctx context.Context, stateName string, input kflow.Input) (kflow.Output, error)
-	Telemetry *telemetry.EventWriter
-	Notify    func(execID, stateName, fromStatus, toStatus, errMsg string)
+	Store      store.Store
+	Handler    func(ctx context.Context, stateName string, input kflow.Input) (kflow.Output, error)
+	Dispatcher ServiceInvoker // nil = no service dispatch
+	Telemetry  *telemetry.EventWriter
+	Notify     func(execID, stateName, fromStatus, toStatus, errMsg string)
 }
 
 func (e *Executor) Run(ctx context.Context, execID string, g *Graph, input kflow.Input) error {
@@ -91,6 +97,8 @@ func (e *Executor) executeState(ctx context.Context, execID string, g *Graph, no
 	if node.TaskDef.IsWait() {
 		time.Sleep(time.Until(*resumeAt))
 		output = kflow.Output{}
+	} else if target := node.TaskDef.ServiceTarget(); target != "" && e.Dispatcher != nil {
+		output, handlerErr = e.Dispatcher.Dispatch(ctx, execID, node.Name, target, input)
 	} else {
 		output, handlerErr = e.applyRetry(ctx, execID, node, input)
 	}

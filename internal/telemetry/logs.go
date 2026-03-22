@@ -69,13 +69,16 @@ func (w *LogWriter) Write(
 
 // StreamJobLogs reads container stdout/stderr for a completed K8s Job and writes
 // each line to ClickHouse via lw. Best-effort: failures are logged and ignored.
-// lw may be nil, in which case the function is a no-op.
+// clientset or lw may be nil, in which case the function is a no-op.
 func StreamJobLogs(
 	ctx context.Context,
 	clientset *kubernetes.Clientset,
 	namespace, jobName, execID, stateName string,
 	lw *LogWriter,
 ) {
+	if clientset == nil {
+		return
+	}
 	pods, err := clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: "job-name=" + jobName,
 	})

@@ -87,7 +87,6 @@ func NewGRPCServer(
 		Handler: gwHandler,
 	}
 
-	_ = disp
 	_ = k8s
 
 	return s, nil

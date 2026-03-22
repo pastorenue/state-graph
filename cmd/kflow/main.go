@@ -23,6 +23,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&apiKeyFlag, "api-key", "", "bearer token for API auth")
 	rootCmd.AddCommand(workflowCmd)
 	rootCmd.AddCommand(executionCmd)
+	rootCmd.AddCommand(serviceCmd)
 }
 
 func main() {

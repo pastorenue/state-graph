@@ -20,6 +20,7 @@ type K8sExecutor struct {
 	Image             string
 	RunnerEndpoint    string // KFLOW_GRPC_ENDPOINT injected into Job containers
 	RunnerTokenSecret []byte // HMAC key for state token signing
+	Dispatcher        ServiceInvoker                                      // nil = no service dispatch
 	Telemetry         *telemetry.EventWriter                              // nil = no telemetry
 	LogWriter         *telemetry.LogWriter                                // nil = no log capture
 	Notify            func(execID, stateName, fromStatus, toStatus, errMsg string) // nil = no WS broadcast
@@ -28,8 +29,11 @@ type K8sExecutor struct {
 // Run drives a full workflow execution using K8s Jobs.
 func (e *K8sExecutor) Run(ctx context.Context, execID string, g *Graph, input kflow.Input) error {
 	ex := &Executor{
-		Store:   e.Store,
-		Handler: e.buildHandler(execID),
+		Store:      e.Store,
+		Handler:    e.buildHandler(execID),
+		Dispatcher: e.Dispatcher,
+		Telemetry:  e.Telemetry,
+		Notify:     e.Notify,
 	}
 	return ex.Run(ctx, execID, g, input)
 }
@@ -74,9 +78,7 @@ func (e *K8sExecutor) buildHandler(execID string) func(context.Context, string, 
 		}
 
 		// Capture container logs regardless of outcome (best-effort).
-		if e.LogWriter != nil {
-			telemetry.StreamJobLogs(ctx, e.K8s.Clientset(), e.K8s.Namespace(), name, execID, stateName, e.LogWriter)
-		}
+		telemetry.StreamJobLogs(ctx, e.K8s.Clientset(), e.K8s.Namespace(), name, execID, stateName, e.LogWriter)
 
 		if result.Failed {
 			log.Printf("k8s_executor: [%s] job %q failed: %s", execID, name, result.Message)

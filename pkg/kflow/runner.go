@@ -39,12 +39,52 @@ func RunLocal(wf *Workflow, input Input) error {
 	return runLocalGraph(context.Background(), g, input)
 }
 
-// RunService registers and starts a persistent or on-demand Service.
+// RunService registers a Service with the Control Plane.
+// Reads KFLOW_SERVER (default http://localhost:8080) and KFLOW_API_KEY from env.
 func RunService(svc *ServiceDef) error {
 	if err := svc.Validate(); err != nil {
 		return fmt.Errorf("invalid service: %w", err)
 	}
-	return fmt.Errorf("RunService: not implemented")
+	server := os.Getenv("KFLOW_SERVER")
+	if server == "" {
+		server = "http://localhost:8080"
+	}
+	return registerService(server, os.Getenv("KFLOW_API_KEY"), svc)
+}
+
+func registerService(server, apiKey string, svc *ServiceDef) error {
+	mode := "deployment"
+	if svc.ServiceMode() == Lambda {
+		mode = "lambda"
+	}
+	body, _ := json.Marshal(map[string]any{
+		"name":           svc.Name(),
+		"mode":           mode,
+		"port":           svc.ServicePort(),
+		"minScale":       svc.MinScale(),
+		"maxScale":       svc.MaxScale(),
+		"ingressHost":    svc.IngressHost(),
+		"timeoutSeconds": int64(svc.ServiceTimeout().Seconds()),
+	})
+	req, err := http.NewRequest(http.MethodPost, server+"/api/v1/services", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("register service: build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("register service: %w", err)
+	}
+	defer resp.Body.Close()
+	// grpc-gateway: 200 OK on success; 409 AlreadyExists → treat as OK
+	if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusConflict {
+		return nil
+	}
+	raw, _ := io.ReadAll(resp.Body)
+	return fmt.Errorf("register service: server returned %d: %s", resp.StatusCode, raw)
 }
 
 func registerWorkflow(server, apiKey string, wf *Workflow) error {

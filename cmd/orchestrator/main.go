@@ -262,6 +262,7 @@ func runServerMode() {
 				Image:             cfg.Image,
 				RunnerEndpoint:    cfg.RunnerGRPCEndpoint,
 				RunnerTokenSecret: cfg.RunnerTokenSecret,
+				Dispatcher:        disp,
 				Telemetry:         eventWriter,
 				LogWriter:         logWriter,
 				Notify:            notify,
@@ -273,8 +274,9 @@ func runServerMode() {
 				Handler: func(_ context.Context, _ string, in kflow.Input) (kflow.Output, error) {
 					return kflow.Output(in), nil
 				},
-				Telemetry: eventWriter,
-				Notify:    notify,
+				Dispatcher: disp,
+				Telemetry:  eventWriter,
+				Notify:     notify,
 			}
 			runErr = ex.Run(context.Background(), execID, g, input)
 		}
