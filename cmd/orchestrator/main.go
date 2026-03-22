@@ -203,7 +203,6 @@ func runServerMode() {
 	var chClient *telemetry.Client
 	var metricsWriter *telemetry.MetricsWriter
 	var eventWriter *telemetry.EventWriter
-	var logWriter *telemetry.LogWriter
 	if cfg.ClickHouseDSN != "" {
 		chClient, err = telemetry.NewClient(ctx, cfg.ClickHouseDSN)
 		if err != nil {
@@ -216,14 +215,16 @@ func runServerMode() {
 				log.Println("telemetry: connected to ClickHouse")
 				metricsWriter = telemetry.NewMetricsWriter(chClient)
 				eventWriter = telemetry.NewEventWriter(chClient)
-				logWriter = telemetry.NewLogWriter(chClient)
-				logWriter.OnWrite = func(row telemetry.LogRow) {
-					logHub.Publish(row)
-				}
 			}
 		}
 	} else {
 		log.Println("telemetry: KFLOW_CLICKHOUSE_DSN not set — telemetry disabled")
+	}
+
+	// Always create logWriter so OnWrite → logHub.Publish works even without ClickHouse.
+	logWriter := telemetry.NewLogWriter(chClient)
+	logWriter.OnWrite = func(row telemetry.LogRow) {
+		logHub.Publish(row)
 	}
 
 	disp := &controller.ServiceDispatcher{

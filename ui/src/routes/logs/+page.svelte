@@ -4,6 +4,22 @@
   import type { LogLine } from '$lib/api';
   import type { LogEntryPayload } from '$lib/ws';
 
+  type Filters = {
+    level?: string;
+    executionId?: string;
+    serviceName?: string;
+    stateName?: string;
+    since?: string;
+    until?: string;
+    q?: string;
+  };
+
+  type Pill = {
+    key: string;
+    value: string;
+    raw: string;
+  };
+
   let logs: LogLine[] = $state([]);
   let total = $state(0);
   let loading = $state(false);
@@ -15,27 +31,73 @@
   const limit = 50;
   let offset = $state(0);
 
-  let filterExecId = $state('');
-  let filterServiceName = $state('');
-  let filterStateName = $state('');
-  let filterLevel = $state('');
-  let filterSince = $state('');
-  let filterUntil = $state('');
-  let filterQ = $state('');
+  let rawQuery = $state('');
+  let pills: Pill[] = $state([]);
 
   function getToken(): string | null {
     if (typeof localStorage === 'undefined') return null;
     return localStorage.getItem('kflow_token');
   }
 
+  function parseQuery(raw: string): { filters: Filters; pills: Pill[] } {
+    const filters: Filters = {};
+    const freeText: string[] = [];
+    const parsed: Pill[] = [];
+    const tokens = raw.match(/\w+:[^\s]+|"[^"]*"|\S+/g) ?? [];
+    for (const tok of tokens) {
+      const colon = tok.indexOf(':');
+      if (colon > 0) {
+        const k = tok.slice(0, colon).toLowerCase();
+        const v = tok.slice(colon + 1);
+        if (k === 'level') {
+          filters.level = v.toUpperCase();
+          parsed.push({ key: 'level', value: v.toUpperCase(), raw: tok });
+          continue;
+        }
+        if (k === 'execution' || k === 'execution_id') {
+          filters.executionId = v;
+          parsed.push({ key: 'execution', value: v, raw: tok });
+          continue;
+        }
+        if (k === 'service' || k === 'service_name') {
+          filters.serviceName = v;
+          parsed.push({ key: 'service', value: v, raw: tok });
+          continue;
+        }
+        if (k === 'state' || k === 'state_name') {
+          filters.stateName = v;
+          parsed.push({ key: 'state', value: v, raw: tok });
+          continue;
+        }
+        if (k === 'since') {
+          filters.since = v;
+          parsed.push({ key: 'since', value: v, raw: tok });
+          continue;
+        }
+        if (k === 'until') {
+          filters.until = v;
+          parsed.push({ key: 'until', value: v, raw: tok });
+          continue;
+        }
+      }
+      const text = tok.replace(/^"|"$/g, '');
+      freeText.push(text);
+      parsed.push({ key: '', value: text, raw: tok });
+    }
+    if (freeText.length > 0) filters.q = freeText.join(' ');
+    return { filters, pills: parsed };
+  }
+
   onMount(() => {
     const sp = $page.url.searchParams;
-    filterExecId = sp.get('execution_id') ?? '';
-    filterServiceName = sp.get('service_name') ?? '';
-    filterStateName = sp.get('state_name') ?? '';
-    filterLevel = sp.get('level') ?? '';
-    filterQ = sp.get('q') ?? '';
-    if (filterExecId || filterServiceName || filterLevel || filterQ) {
+    const parts: string[] = [];
+    if (sp.get('execution_id')) parts.push(`execution:${sp.get('execution_id')}`);
+    if (sp.get('service_name')) parts.push(`service:${sp.get('service_name')}`);
+    if (sp.get('state_name')) parts.push(`state:${sp.get('state_name')}`);
+    if (sp.get('level')) parts.push(`level:${sp.get('level')}`);
+    if (sp.get('q')) parts.push(sp.get('q')!);
+    rawQuery = parts.join(' ');
+    if (rawQuery.trim()) {
       search();
     }
   });
@@ -53,6 +115,8 @@
   }
 
   function search(resetOffset = true) {
+    const { filters: f, pills: p } = parseQuery(rawQuery);
+    pills = p;
     if (resetOffset) {
       offset = 0;
       logs = [];
@@ -62,18 +126,23 @@
     historyLoaded = false;
     loading = true;
     error = '';
-    openWSLogs();
+    openWSLogs(f);
   }
 
-  function openWSLogs() {
+  function removePill(pill: Pill) {
+    rawQuery = rawQuery.replace(pill.raw, '').replace(/\s+/g, ' ').trim();
+    search();
+  }
+
+  function openWSLogs(f: Filters) {
     const params = new URLSearchParams();
-    if (filterExecId) params.set('execution_id', filterExecId);
-    if (filterServiceName) params.set('service_name', filterServiceName);
-    if (filterStateName) params.set('state_name', filterStateName);
-    if (filterLevel) params.set('level', filterLevel);
-    if (filterSince) params.set('since', filterSince);
-    if (filterUntil) params.set('until', filterUntil);
-    if (filterQ) params.set('q', filterQ);
+    if (f.executionId) params.set('execution_id', f.executionId);
+    if (f.serviceName) params.set('service_name', f.serviceName);
+    if (f.stateName) params.set('state_name', f.stateName);
+    if (f.level) params.set('level', f.level);
+    if (f.since) params.set('since', f.since);
+    if (f.until) params.set('until', f.until);
+    if (f.q) params.set('q', f.q);
     params.set('limit', String(limit));
     params.set('offset', String(offset));
     const token = getToken();
@@ -141,27 +210,47 @@
   function levelBadge(level: string): string {
     return `badge badge-${level.toLowerCase()}`;
   }
+
+  function pillClass(pill: Pill): string {
+    if (pill.key === 'level') return `badge badge-${pill.value.toLowerCase()} gap-1 cursor-default`;
+    return 'badge gap-1 bg-raised text-muted cursor-default';
+  }
+
+  function pillLabel(pill: Pill): string {
+    if (pill.key === '') return pill.value;
+    return `${pill.key}: ${pill.value}`;
+  }
 </script>
 
 <div class="p-8 max-w-6xl">
 <h1 class="text-3xl font-medium">Log Explorer</h1>
 
-<form class="filters" onsubmit={(e) => { e.preventDefault(); search(); }}>
-  <input bind:value={filterExecId} placeholder="Execution ID" />
-  <input bind:value={filterServiceName} placeholder="Service name" />
-  <input bind:value={filterStateName} placeholder="State name" />
-  <select bind:value={filterLevel}>
-    <option value="">All levels</option>
-    <option value="INFO">INFO</option>
-    <option value="WARN">WARN</option>
-    <option value="ERROR">ERROR</option>
-    <option value="DEBUG">DEBUG</option>
-  </select>
-  <input bind:value={filterSince} placeholder="Since (ISO 8601)" />
-  <input bind:value={filterUntil} placeholder="Until (ISO 8601)" />
-  <input bind:value={filterQ} placeholder="Search text" class="min-w-[180px]" />
+<form class="flex gap-2 mb-2" onsubmit={(e) => { e.preventDefault(); search(); }}>
+  <input
+    class="flex-1"
+    bind:value={rawQuery}
+    placeholder="Filter logs… e.g. level:ERROR execution:abc service:api state:Validate"
+  />
   <button type="submit">Search</button>
 </form>
+
+{#if pills.length > 0}
+  <div class="flex flex-wrap gap-1 mb-4">
+    {#each pills as pill (pill.raw + pill.key)}
+      <span class={pillClass(pill)}>
+        {pillLabel(pill)}
+        <button
+          type="button"
+          class="ml-1 opacity-50 hover:opacity-100 font-bold leading-none"
+          onclick={() => removePill(pill)}
+          aria-label="Remove filter"
+        >×</button>
+      </span>
+    {/each}
+  </div>
+{:else}
+  <div class="mb-4"></div>
+{/if}
 
 {#if wsConnected}
   <span class="text-xs text-green-600 font-medium">● Live</span>

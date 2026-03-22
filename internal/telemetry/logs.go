@@ -53,7 +53,7 @@ func (w *LogWriter) Write(
 	ctx context.Context,
 	execID, serviceName, stateName, level, message string,
 ) {
-	if w == nil || w.ch == nil {
+	if w == nil {
 		return
 	}
 	row := LogRow{
@@ -66,15 +66,17 @@ func (w *LogWriter) Write(
 		OccurredAt:  time.Now(),
 	}
 	go func(onWrite func(LogRow)) {
-		writeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := w.ch.conn.Exec(writeCtx,
-			`INSERT INTO logs (log_id, execution_id, service_name, state_name, level, message, occurred_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			row.LogID, row.ExecutionID, row.ServiceName, row.StateName, row.Level, row.Message, row.OccurredAt,
-		); err != nil {
-			log.Printf("telemetry WARN: write log execID=%s state=%s: %v", execID, stateName, err)
-			return
+		if w.ch != nil {
+			writeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := w.ch.conn.Exec(writeCtx,
+				`INSERT INTO logs (log_id, execution_id, service_name, state_name, level, message, occurred_at)
+				 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+				row.LogID, row.ExecutionID, row.ServiceName, row.StateName, row.Level, row.Message, row.OccurredAt,
+			); err != nil {
+				log.Printf("telemetry WARN: write log execID=%s state=%s: %v", execID, stateName, err)
+				return
+			}
 		}
 		if onWrite != nil {
 			onWrite(row)

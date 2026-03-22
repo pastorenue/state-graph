@@ -86,7 +86,7 @@ func NewGatewayMux(
 
 	// WebSocket endpoints.
 	mux.Handle("/api/v1/ws", authMiddleware(apiKey, http.HandlerFunc(hub.ServeWS)))
-	mux.Handle("/api/v1/ws/logs", authMiddleware(apiKey, logHub.ServeLogsWSHandler(ch)))
+	mux.Handle("/api/v1/ws/logs", authMiddleware(apiKey, logHub.ServeLogsWSHandler(ch, st)))
 
 	// All other routes via grpc-gateway, protected by auth.
 	mux.Handle("/", authMiddleware(apiKey, secureHeaders(gwMux)))

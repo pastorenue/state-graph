@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/pastorenue/kflow/internal/store"
 	"github.com/pastorenue/kflow/internal/telemetry"
 )
 
@@ -62,7 +64,7 @@ func (h *LogHub) Publish(row telemetry.LogRow) {
 
 // ServeLogsWSHandler returns an HTTP handler that streams logs over WebSocket.
 // GET /api/v1/ws/logs?execution_id=&service_name=&state_name=&level=&since=&q=&offset=&limit=
-func (h *LogHub) ServeLogsWSHandler(ch *telemetry.Client) http.HandlerFunc {
+func (h *LogHub) ServeLogsWSHandler(ch *telemetry.Client, st store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
@@ -96,6 +98,14 @@ func (h *LogHub) ServeLogsWSHandler(ch *telemetry.Client) http.HandlerFunc {
 			// QueryLogs returns DESC; reverse for chronological order.
 			for i := len(rows) - 1; i >= 0; i-- {
 				writeLogEntryWS(conn, rows[i])
+			}
+		} else if st != nil && filter.ExecutionID != "" {
+			// No ClickHouse — synthesize log rows from MongoDB state records.
+			states, err := st.ListStates(r.Context(), filter.ExecutionID)
+			if err == nil {
+				for _, row := range syntheticLogsFromStates(states) {
+					writeLogEntryWS(conn, row)
+				}
 			}
 		}
 
@@ -166,5 +176,42 @@ func matchesLogFilter(row telemetry.LogRow, f telemetry.LogFilter) bool {
 		return false
 	}
 	return true
+}
+
+// syntheticLogsFromStates synthesizes log rows from MongoDB state records
+// for use when ClickHouse is not configured.
+func syntheticLogsFromStates(states []store.StateRecord) []telemetry.LogRow {
+	var rows []telemetry.LogRow
+	for _, st := range states {
+		rows = append(rows, telemetry.LogRow{
+			LogID:       st.ExecutionID + "/" + st.StateName + "/start",
+			ExecutionID: st.ExecutionID,
+			StateName:   st.StateName,
+			Level:       "INFO",
+			Message:     fmt.Sprintf("[%s] started", st.StateName),
+			OccurredAt:  st.CreatedAt,
+		})
+		switch st.Status {
+		case store.StatusCompleted:
+			rows = append(rows, telemetry.LogRow{
+				LogID:       st.ExecutionID + "/" + st.StateName + "/complete",
+				ExecutionID: st.ExecutionID,
+				StateName:   st.StateName,
+				Level:       "INFO",
+				Message:     fmt.Sprintf("[%s] completed", st.StateName),
+				OccurredAt:  st.UpdatedAt,
+			})
+		case store.StatusFailed:
+			rows = append(rows, telemetry.LogRow{
+				LogID:       st.ExecutionID + "/" + st.StateName + "/fail",
+				ExecutionID: st.ExecutionID,
+				StateName:   st.StateName,
+				Level:       "ERROR",
+				Message:     fmt.Sprintf("[%s] failed: %s", st.StateName, st.Error),
+				OccurredAt:  st.UpdatedAt,
+			})
+		}
+	}
+	return rows
 }
 
