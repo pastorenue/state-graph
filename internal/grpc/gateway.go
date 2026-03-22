@@ -31,6 +31,7 @@ func NewGatewayMux(
 	ch *telemetry.Client,
 	apiKey string,
 	ready *atomic.Bool,
+	logHub *api.LogHub,
 	trigger func(execID string, graph *kflowv1.WorkflowGraph, input kflow.Input),
 ) (http.Handler, error) {
 	gwMux := runtime.NewServeMux()
@@ -83,8 +84,9 @@ func NewGatewayMux(
 		}
 	})
 
-	// WebSocket endpoint.
+	// WebSocket endpoints.
 	mux.Handle("/api/v1/ws", authMiddleware(apiKey, http.HandlerFunc(hub.ServeWS)))
+	mux.Handle("/api/v1/ws/logs", authMiddleware(apiKey, logHub.ServeLogsWSHandler(ch)))
 
 	// All other routes via grpc-gateway, protected by auth.
 	mux.Handle("/", authMiddleware(apiKey, secureHeaders(gwMux)))
@@ -109,6 +111,9 @@ func authMiddleware(apiKey string, next http.Handler) http.Handler {
 		provided := ""
 		if auth := r.Header.Get("Authorization"); len(auth) > 7 && auth[:7] == "Bearer " {
 			provided = auth[7:]
+		} else if t := r.URL.Query().Get("token"); t != "" {
+			// WebSocket clients pass the token as a query parameter.
+			provided = t
 		}
 		if subtle.ConstantTimeCompare([]byte(provided), []byte(apiKey)) != 1 {
 			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)

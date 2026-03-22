@@ -11,8 +11,8 @@ import (
 
 // WSEvent is broadcast to all connected WebSocket clients.
 type WSEvent struct {
-	Type      string    `json:"type"`    // "state_transition" | "service_update"
-	Payload   any       `json:"payload"` // typed by Type
+	Type      string    `json:"type"`    // "state_transition" | "service_update" | "log_entry" | "logs_end"
+	Payload   any       `json:"payload"` // typed by Type; nil for "logs_end"
 	Timestamp time.Time `json:"timestamp"`
 }
 
@@ -29,6 +29,17 @@ type StateTransitionPayload struct {
 type ServiceUpdatePayload struct {
 	ServiceName string `json:"service_name"`
 	Status      string `json:"status"`
+}
+
+// LogEntryPayload is the Payload for "log_entry" events.
+type LogEntryPayload struct {
+	LogID       string    `json:"log_id"`
+	ExecutionID string    `json:"execution_id"`
+	ServiceName string    `json:"service_name"`
+	StateName   string    `json:"state_name"`
+	Level       string    `json:"level"`
+	Message     string    `json:"message"`
+	OccurredAt  time.Time `json:"occurred_at"`
 }
 
 var upgrader = websocket.Upgrader{

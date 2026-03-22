@@ -1,6 +1,16 @@
+export interface LogEntryPayload {
+  log_id: string;
+  execution_id: string;
+  service_name: string;
+  state_name: string;
+  level: 'INFO' | 'WARN' | 'ERROR' | 'DEBUG';
+  message: string;
+  occurred_at: string;
+}
+
 export interface WSEvent {
-  type: 'state_transition' | 'service_update';
-  payload: StateTransitionPayload | ServiceUpdatePayload;
+  type: 'state_transition' | 'service_update' | 'log_entry' | 'logs_end';
+  payload: StateTransitionPayload | ServiceUpdatePayload | LogEntryPayload | null;
   timestamp: string;
 }
 

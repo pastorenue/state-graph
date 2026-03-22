@@ -42,6 +42,7 @@ func NewGRPCServer(
 	disp *controller.ServiceDispatcher,
 	runnerSrv *runner.RunnerServiceServer,
 	ch *telemetry.Client,
+	logHub *api.LogHub,
 	trigger func(execID string, graph *kflowv1.WorkflowGraph, input kflow.Input),
 ) (*GRPCServer, error) {
 	s := &GRPCServer{cfg: cfg}
@@ -76,6 +77,7 @@ func NewGRPCServer(
 		ch,
 		cfg.APIKey,
 		&s.ready,
+		logHub,
 		trigger,
 	)
 	if err != nil {
