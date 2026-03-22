@@ -1,12 +1,16 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { page } from '$app/stores';
-  import { queryLogs, type LogLine } from '$lib/api';
+  import type { LogLine } from '$lib/api';
+  import type { LogEntryPayload } from '$lib/ws';
 
   let logs: LogLine[] = [];
   let total = 0;
   let loading = false;
   let error = '';
+  let historyLoaded = false;
+  let wsConnected = false;
+  let ws: WebSocket | null = null;
 
   const limit = 50;
   let offset = 0;
@@ -18,6 +22,11 @@
   let filterSince = '';
   let filterUntil = '';
   let filterQ = '';
+
+  function getToken(): string | null {
+    if (typeof localStorage === 'undefined') return null;
+    return localStorage.getItem('kflow_token');
+  }
 
   onMount(() => {
     const sp = $page.url.searchParams;
@@ -31,40 +40,102 @@
     }
   });
 
-  async function search(resetOffset = true) {
-    if (resetOffset) offset = 0;
+  onDestroy(() => {
+    closeWS();
+  });
+
+  function closeWS() {
+    if (ws) {
+      ws.close();
+      ws = null;
+      wsConnected = false;
+    }
+  }
+
+  function search(resetOffset = true) {
+    if (resetOffset) {
+      offset = 0;
+      logs = [];
+      total = 0;
+    }
+    closeWS();
+    historyLoaded = false;
     loading = true;
     error = '';
-    try {
-      const result = await queryLogs({
-        execution_id: filterExecId || undefined,
-        service_name: filterServiceName || undefined,
-        state_name: filterStateName || undefined,
-        level: filterLevel || undefined,
-        since: filterSince || undefined,
-        until: filterUntil || undefined,
-        q: filterQ || undefined,
-        limit,
-        offset,
-      });
-      logs = result.logs;
-      total = result.total;
-    } catch (e) {
-      const err = e as { error: string };
-      error = err.error ?? 'Failed to query logs';
-    } finally {
+    openWSLogs();
+  }
+
+  function openWSLogs() {
+    const params = new URLSearchParams();
+    if (filterExecId) params.set('execution_id', filterExecId);
+    if (filterServiceName) params.set('service_name', filterServiceName);
+    if (filterStateName) params.set('state_name', filterStateName);
+    if (filterLevel) params.set('level', filterLevel);
+    if (filterSince) params.set('since', filterSince);
+    if (filterUntil) params.set('until', filterUntil);
+    if (filterQ) params.set('q', filterQ);
+    params.set('limit', String(limit));
+    params.set('offset', String(offset));
+    const token = getToken();
+    if (token) params.set('token', token);
+
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const url = `${protocol}//${location.host}/api/v1/ws/logs?${params.toString()}`;
+
+    ws = new WebSocket(url);
+
+    ws.onopen = () => {
+      wsConnected = true;
+    };
+
+    ws.onmessage = (ev) => {
+      try {
+        const event = JSON.parse(ev.data as string);
+        if (event.type === 'log_entry') {
+          const p = event.payload as LogEntryPayload;
+          logs = [
+            ...logs,
+            {
+              log_id: p.log_id,
+              execution_id: p.execution_id,
+              service_name: p.service_name,
+              state_name: p.state_name,
+              level: p.level,
+              message: p.message,
+              occurred_at: p.occurred_at,
+            },
+          ];
+          total = logs.length;
+        } else if (event.type === 'logs_end') {
+          historyLoaded = true;
+          loading = false;
+        }
+      } catch {
+        // ignore malformed messages
+      }
+    };
+
+    ws.onerror = () => {
+      error = 'WebSocket connection error';
       loading = false;
-    }
+    };
+
+    ws.onclose = () => {
+      wsConnected = false;
+      if (!historyLoaded) {
+        loading = false;
+      }
+    };
   }
 
   async function nextPage() {
     offset += limit;
-    await search(false);
+    search(false);
   }
 
   async function prevPage() {
     offset = Math.max(0, offset - limit);
-    await search(false);
+    search(false);
   }
 
   function levelBadge(level: string): string {
@@ -92,14 +163,21 @@
   <button type="submit">Search</button>
 </form>
 
+{#if wsConnected}
+  <span class="text-xs text-green-600 font-medium">● Live</span>
+{:else if historyLoaded}
+  <span class="text-xs text-muted">Disconnected</span>
+{/if}
+
 {#if loading}
   <p class="empty">Loading…</p>
 {:else if error}
   <p class="empty text-red-600">{error}</p>
 {:else}
-  {#if logs.length > 0 || total > 0}
+  {#if logs.length > 0 || historyLoaded}
     <div class="text-xs text-muted mb-2">
-      Showing {offset + 1}–{Math.min(offset + limit, total)} of {total} results
+      Showing {offset + 1}–{offset + logs.length} results
+      {#if historyLoaded && !wsConnected}(history){/if}
     </div>
   {/if}
 
@@ -114,9 +192,13 @@
       </tr>
     </thead>
     <tbody>
-      {#if logs.length === 0 && total === 0}
+      {#if logs.length === 0 && historyLoaded}
         <tr class="hover:bg-transparent cursor-default">
           <td colspan="5" class="empty border-none">No logs found for the selected filters.</td>
+        </tr>
+      {:else if logs.length === 0}
+        <tr class="hover:bg-transparent cursor-default">
+          <td colspan="5" class="empty border-none">Run a search to view logs.</td>
         </tr>
       {:else}
         {#each logs as log (log.log_id)}
@@ -138,10 +220,10 @@
     </tbody>
   </table>
 
-  {#if logs.length > 0 || total > 0}
+  {#if historyLoaded}
     <div class="flex gap-2 mt-4">
       <button on:click={prevPage} disabled={offset === 0} class="disabled:opacity-40 disabled:cursor-not-allowed">← Prev</button>
-      <button on:click={nextPage} disabled={offset + limit >= total} class="disabled:opacity-40 disabled:cursor-not-allowed">Next →</button>
+      <button on:click={nextPage}>Next →</button>
     </div>
   {/if}
 {/if}

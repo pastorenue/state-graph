@@ -33,6 +33,7 @@ func (e *K8sExecutor) Run(ctx context.Context, execID string, g *Graph, input kf
 		Handler:    e.buildHandler(execID),
 		Dispatcher: e.Dispatcher,
 		Telemetry:  e.Telemetry,
+		LogWriter:  e.LogWriter,
 		Notify:     e.Notify,
 	}
 	return ex.Run(ctx, execID, g, input)

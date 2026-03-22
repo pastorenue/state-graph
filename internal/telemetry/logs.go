@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/google/uuid"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -37,7 +38,8 @@ type LogFilter struct {
 
 // LogWriter writes captured log lines to the logs table.
 type LogWriter struct {
-	ch *Client
+	ch      *Client
+	OnWrite func(LogRow) // optional callback invoked after each successful INSERT
 }
 
 // NewLogWriter creates a LogWriter backed by ch.
@@ -54,17 +56,30 @@ func (w *LogWriter) Write(
 	if w == nil || w.ch == nil {
 		return
 	}
-	go func() {
+	row := LogRow{
+		LogID:       uuid.New().String(),
+		ExecutionID: execID,
+		ServiceName: serviceName,
+		StateName:   stateName,
+		Level:       level,
+		Message:     message,
+		OccurredAt:  time.Now(),
+	}
+	go func(onWrite func(LogRow)) {
 		writeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := w.ch.conn.Exec(writeCtx,
-			`INSERT INTO logs (execution_id, service_name, state_name, level, message)
-			 VALUES (?, ?, ?, ?, ?)`,
-			execID, serviceName, stateName, level, message,
+			`INSERT INTO logs (log_id, execution_id, service_name, state_name, level, message, occurred_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			row.LogID, row.ExecutionID, row.ServiceName, row.StateName, row.Level, row.Message, row.OccurredAt,
 		); err != nil {
 			log.Printf("telemetry WARN: write log execID=%s state=%s: %v", execID, stateName, err)
+			return
 		}
-	}()
+		if onWrite != nil {
+			onWrite(row)
+		}
+	}(w.OnWrite)
 }
 
 // StreamJobLogs reads container stdout/stderr for a completed K8s Job and writes

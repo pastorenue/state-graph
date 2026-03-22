@@ -26,6 +26,7 @@ func init() {
 	rootCmd.AddCommand(serviceCmd)
 	rootCmd.AddCommand(authCmd)
 	rootCmd.AddCommand(uiCmd)
+	rootCmd.AddCommand(logsCmd)
 }
 
 func main() {

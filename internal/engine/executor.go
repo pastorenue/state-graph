@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"time"
 
@@ -18,13 +19,14 @@ type ServiceInvoker interface {
 type Executor struct {
 	Store      store.Store
 	Handler    func(ctx context.Context, stateName string, input kflow.Input) (kflow.Output, error)
-	Dispatcher ServiceInvoker // nil = no service dispatch
+	Dispatcher ServiceInvoker       // nil = no service dispatch
 	Telemetry  *telemetry.EventWriter
+	LogWriter  *telemetry.LogWriter // nil = no log capture
 	Notify     func(execID, stateName, fromStatus, toStatus, errMsg string)
 }
 
 func (e *Executor) Run(ctx context.Context, execID string, g *Graph, input kflow.Input) error {
-	log.Printf("executor: execution %q started", execID)
+	e.logLine(ctx, execID, "", "INFO", fmt.Sprintf("executor: execution %q started", execID))
 	node := g.EntryNode()
 	current := input
 
@@ -37,7 +39,7 @@ func (e *Executor) Run(ctx context.Context, execID string, g *Graph, input kflow
 
 		output, err := e.executeState(ctx, execID, g, node, cloneInput(current))
 		if err != nil {
-			log.Printf("executor: execution %q failed: %v", execID, err)
+			e.logLine(ctx, execID, "", "ERROR", fmt.Sprintf("executor: execution %q failed: %v", execID, err))
 			return err
 		}
 
@@ -51,18 +53,18 @@ func (e *Executor) Run(ctx context.Context, execID string, g *Graph, input kflow
 		var nextErr error
 		node, nextErr = g.Next(node, choiceKey)
 		if nextErr != nil {
-			log.Printf("executor: execution %q failed: %v", execID, nextErr)
+			e.logLine(ctx, execID, "", "ERROR", fmt.Sprintf("executor: execution %q failed: %v", execID, nextErr))
 			return nextErr
 		}
 		current = output
 	}
 
-	log.Printf("executor: execution %q completed", execID)
+	e.logLine(ctx, execID, "", "INFO", fmt.Sprintf("executor: execution %q completed", execID))
 	return nil
 }
 
 func (e *Executor) executeState(ctx context.Context, execID string, g *Graph, node *Node, input kflow.Input) (kflow.Output, error) {
-	log.Printf("executor: [%s] state %q starting", execID, node.Name)
+	e.logLine(ctx, execID, node.Name, "INFO", fmt.Sprintf("executor: [%s] state %q starting", execID, node.Name))
 
 	var resumeAt *time.Time
 	if node.TaskDef.IsWait() {
@@ -108,19 +110,19 @@ func (e *Executor) executeState(ctx context.Context, execID string, g *Graph, no
 			return nil, err
 		}
 		e.recordTransition(ctx, execID, node.Name, string(store.StatusRunning), string(store.StatusCompleted), "")
-		log.Printf("executor: [%s] state %q completed", execID, node.Name)
+		e.logLine(ctx, execID, node.Name, "INFO", fmt.Sprintf("executor: [%s] state %q completed", execID, node.Name))
 		return output, nil
 	}
 
 	// handler failed — mark final attempt as failed
-	log.Printf("executor: [%s] state %q failed: %v", execID, node.Name, handlerErr)
+	e.logLine(ctx, execID, node.Name, "ERROR", fmt.Sprintf("executor: [%s] state %q failed: %v", execID, node.Name, handlerErr))
 	if err := e.Store.FailState(ctx, execID, node.Name, handlerErr.Error()); err != nil {
 		return nil, err
 	}
 	e.recordTransition(ctx, execID, node.Name, string(store.StatusRunning), string(store.StatusFailed), handlerErr.Error())
 
 	if node.Catch != "" {
-		log.Printf("executor: [%s] state %q → catch %q", execID, node.Name, node.Catch)
+		e.logLine(ctx, execID, node.Name, "WARN", fmt.Sprintf("executor: [%s] state %q → catch %q", execID, node.Name, node.Catch))
 		catchInput := mergeErrorKey(input, handlerErr)
 		catchNode := g.Node(node.Catch)
 		if catchNode == nil {
@@ -147,7 +149,7 @@ func (e *Executor) applyRetry(ctx context.Context, execID string, node *Node, in
 	var lastErr error
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		if attempt > 1 {
-			log.Printf("executor: [%s] state %q retry %d/%d", execID, node.Name, attempt, maxAttempts)
+			e.logLine(ctx, execID, node.Name, "WARN", fmt.Sprintf("executor: [%s] state %q retry %d/%d", execID, node.Name, attempt, maxAttempts))
 			// mark failed before retry write-ahead
 			if err := e.Store.FailState(ctx, execID, node.Name, lastErr.Error()); err != nil {
 				return nil, err
@@ -179,6 +181,13 @@ func (e *Executor) applyRetry(ctx context.Context, execID string, node *Node, in
 	}
 
 	return nil, lastErr
+}
+
+func (e *Executor) logLine(ctx context.Context, execID, stateName, level, msg string) {
+	log.Print(msg)
+	if e.LogWriter != nil {
+		e.LogWriter.Write(ctx, execID, "", stateName, level, msg)
+	}
 }
 
 func (e *Executor) recordTransition(ctx context.Context, execID, state, from, to, errMsg string) {

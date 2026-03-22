@@ -198,6 +198,7 @@ func runServerMode() {
 	}
 
 	hub := api.NewWSHub()
+	logHub := api.NewLogHub()
 
 	var chClient *telemetry.Client
 	var metricsWriter *telemetry.MetricsWriter
@@ -216,6 +217,9 @@ func runServerMode() {
 				metricsWriter = telemetry.NewMetricsWriter(chClient)
 				eventWriter = telemetry.NewEventWriter(chClient)
 				logWriter = telemetry.NewLogWriter(chClient)
+				logWriter.OnWrite = func(row telemetry.LogRow) {
+					logHub.Publish(row)
+				}
 			}
 		}
 	} else {
@@ -276,6 +280,7 @@ func runServerMode() {
 				},
 				Dispatcher: disp,
 				Telemetry:  eventWriter,
+				LogWriter:  logWriter,
 				Notify:     notify,
 			}
 			runErr = ex.Run(context.Background(), execID, g, input)
@@ -289,7 +294,7 @@ func runServerMode() {
 		}
 	}
 
-	srv, err := grpcsrv.NewGRPCServer(cfg, ms, k8s, hub, disp, runnerSrv, chClient, trigger)
+	srv, err := grpcsrv.NewGRPCServer(cfg, ms, k8s, hub, disp, runnerSrv, chClient, logHub, trigger)
 	if err != nil {
 		log.Fatalf("grpc: create server: %v", err)
 	}
