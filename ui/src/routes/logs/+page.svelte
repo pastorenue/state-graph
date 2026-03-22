@@ -4,24 +4,24 @@
   import type { LogLine } from '$lib/api';
   import type { LogEntryPayload } from '$lib/ws';
 
-  let logs: LogLine[] = [];
-  let total = 0;
-  let loading = false;
-  let error = '';
-  let historyLoaded = false;
-  let wsConnected = false;
+  let logs: LogLine[] = $state([]);
+  let total = $state(0);
+  let loading = $state(false);
+  let error = $state('');
+  let historyLoaded = $state(false);
+  let wsConnected = $state(false);
   let ws: WebSocket | null = null;
 
   const limit = 50;
-  let offset = 0;
+  let offset = $state(0);
 
-  let filterExecId = '';
-  let filterServiceName = '';
-  let filterStateName = '';
-  let filterLevel = '';
-  let filterSince = '';
-  let filterUntil = '';
-  let filterQ = '';
+  let filterExecId = $state('');
+  let filterServiceName = $state('');
+  let filterStateName = $state('');
+  let filterLevel = $state('');
+  let filterSince = $state('');
+  let filterUntil = $state('');
+  let filterQ = $state('');
 
   function getToken(): string | null {
     if (typeof localStorage === 'undefined') return null;
@@ -128,12 +128,12 @@
     };
   }
 
-  async function nextPage() {
+  function nextPage() {
     offset += limit;
     search(false);
   }
 
-  async function prevPage() {
+  function prevPage() {
     offset = Math.max(0, offset - limit);
     search(false);
   }
@@ -146,7 +146,7 @@
 <div class="p-8 max-w-6xl">
 <h1 class="text-3xl font-medium">Log Explorer</h1>
 
-<form class="filters" on:submit|preventDefault={() => search()}>
+<form class="filters" onsubmit={(e) => { e.preventDefault(); search(); }}>
   <input bind:value={filterExecId} placeholder="Execution ID" />
   <input bind:value={filterServiceName} placeholder="Service name" />
   <input bind:value={filterStateName} placeholder="State name" />
@@ -222,8 +222,8 @@
 
   {#if historyLoaded}
     <div class="flex gap-2 mt-4">
-      <button on:click={prevPage} disabled={offset === 0} class="disabled:opacity-40 disabled:cursor-not-allowed">← Prev</button>
-      <button on:click={nextPage}>Next →</button>
+      <button onclick={prevPage} disabled={offset === 0} class="disabled:opacity-40 disabled:cursor-not-allowed">← Prev</button>
+      <button onclick={nextPage}>Next →</button>
     </div>
   {/if}
 {/if}

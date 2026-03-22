@@ -56,12 +56,33 @@ var upgrader = websocket.Upgrader{
 // Broadcasts are best-effort: slow or closed clients are dropped.
 type WSHub struct {
 	clients map[*websocket.Conn]struct{}
+	subs    map[chan WSEvent]struct{}
 	mu      sync.RWMutex
 }
 
 // NewWSHub creates a ready-to-use WSHub.
 func NewWSHub() *WSHub {
-	return &WSHub{clients: make(map[*websocket.Conn]struct{})}
+	return &WSHub{
+		clients: make(map[*websocket.Conn]struct{}),
+		subs:    make(map[chan WSEvent]struct{}),
+	}
+}
+
+// subscribe returns a channel that receives a copy of every Broadcast event.
+func (h *WSHub) subscribe() chan WSEvent {
+	ch := make(chan WSEvent, 64)
+	h.mu.Lock()
+	h.subs[ch] = struct{}{}
+	h.mu.Unlock()
+	return ch
+}
+
+// unsubscribe removes and closes a subscriber channel.
+func (h *WSHub) unsubscribe(ch chan WSEvent) {
+	h.mu.Lock()
+	delete(h.subs, ch)
+	h.mu.Unlock()
+	close(ch)
 }
 
 // Register adds a WebSocket connection to the hub.
@@ -110,6 +131,16 @@ func (h *WSHub) Broadcast(event WSEvent) {
 		}
 		h.mu.Unlock()
 	}
+
+	// Fan out to event subscribers (non-blocking; slow subscribers drop events).
+	h.mu.RLock()
+	for ch := range h.subs {
+		select {
+		case ch <- event:
+		default:
+		}
+	}
+	h.mu.RUnlock()
 }
 
 // ServeWS upgrades the HTTP request to a WebSocket and registers the connection.
