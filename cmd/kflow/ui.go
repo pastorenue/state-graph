@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -14,11 +15,21 @@ import (
 )
 
 var uiCmd = &cobra.Command{
-	Use:   "ui <port>",
+	Use:   "ui [port]",
 	Short: "Serve the kflow dashboard locally and open it in the browser",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		port := args[0]
+		listenAddr := ":0" // OS-assigned free port by default
+		if len(args) == 1 {
+			listenAddr = ":" + args[0]
+		}
+
+		ln, err := net.Listen("tcp", listenAddr)
+		if err != nil {
+			return fmt.Errorf("cannot bind on %s (port already in use?): %w", listenAddr, err)
+		}
+
+		port := ln.Addr().(*net.TCPAddr).Port
 
 		token := loadSavedToken()
 		if token == "" {
@@ -32,9 +43,9 @@ var uiCmd = &cobra.Command{
 			}
 		}
 
-		targetURL := fmt.Sprintf("http://localhost:%s/", port)
+		targetURL := fmt.Sprintf("http://localhost:%d/", port)
 		if token != "" {
-			targetURL = fmt.Sprintf("http://localhost:%s/?token=%s", port, token)
+			targetURL = fmt.Sprintf("http://localhost:%d/?token=%s", port, token)
 		}
 
 		orchestratorURL, err := url.Parse(serverFlag)
@@ -54,7 +65,7 @@ var uiCmd = &cobra.Command{
 		})
 
 		go func() {
-			if err := http.ListenAndServe(":"+port, handler); err != nil {
+			if err := http.Serve(ln, handler); err != nil {
 				fmt.Printf("ui server error: %v\n", err)
 			}
 		}()
