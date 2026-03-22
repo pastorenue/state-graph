@@ -19,6 +19,9 @@ vendor/
 # Embedded UI build output (populated by make build-ui)
 cmd/kflow/uiassets/build/
 
+# SvelteKit generated files
+ui/.svelte-kit/
+
 # Editor / OS
 .DS_Store
 .idea/
