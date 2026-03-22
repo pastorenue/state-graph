@@ -101,8 +101,8 @@ build-ui: ui-install
 	rm -rf cmd/kflow/uiassets/build
 	cp -r ui/build cmd/kflow/uiassets/build
 
-TARGET_OS ?= linux
-TARGET_ARCH ?= amd64
+TARGET_OS ?= darwin
+TARGET_ARCH ?= arm64
 
 ## build-cli: build the kflow CLI binary (run make build-ui first for embedded dashboard)
 build-cli: build-ui
