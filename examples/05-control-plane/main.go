@@ -177,6 +177,7 @@ func dispatch(state string, input map[string]any) (map[string]any, error) {
 }
 
 func validateOrder(input map[string]any) (map[string]any, error) {
+	time.Sleep(2 * time.Second)
 	total, _ := input["total"].(float64)
 	if total <= 0 {
 		return nil, fmt.Errorf("invalid order: total must be > 0")
@@ -189,6 +190,7 @@ func validateOrder(input map[string]any) (map[string]any, error) {
 }
 
 func calculateTax(input map[string]any) (map[string]any, error) {
+	time.Sleep(2 * time.Second)
 	total, _ := input["total"].(float64)
 	tax := total * 0.08
 	return map[string]any{
@@ -200,6 +202,7 @@ func calculateTax(input map[string]any) (map[string]any, error) {
 }
 
 func chargePayment(input map[string]any) (map[string]any, error) {
+	time.Sleep(2 * time.Second)
 	grandTotal, _ := input["grand_total"].(float64)
 	return map[string]any{
 		"order_id":       input["order_id"],
